@@ -1,0 +1,241 @@
+# =====================================================================
+#  Klingel – schlanke Türklingel nur mit Bordmitteln von Home Assistant
+#  Ablage: /config/packages/klingel.yaml
+#
+#  VOR DEM EINSPIELEN ERSETZEN (Suchen & Ersetzen):
+#    binary_sensor.klingel          -> dein Klingeltaster
+#    camera.haustuer                -> deine Kamera
+#    switch.tueroeffner             -> dein Türöffner-Relais
+#    notify.mobile_app_handy        -> dein Handy (Android)
+#    media_player.tablet_flur       -> browser_mod-Player, die klingeln sollen
+#    media_player.handy_app
+#    123456789                      -> Telegram-Chat-/Benutzer-IDs (2x unten)
+# =====================================================================
+
+# --- Helfer -----------------------------------------------------------
+timer:
+  # Läuft nach jedem Klingeln. Solange er läuft: Livebild auf dem
+  # Dashboard und die "Tür öffnen"-Knöpfe in Push/Telegram gelten.
+  klingel:
+    name: Es klingelt
+    icon: mdi:bell-ring
+    duration: "00:03:00"
+    restore: false
+
+input_datetime:
+  klingel_zuletzt:
+    name: Zuletzt geklingelt
+    icon: mdi:history
+    has_date: true
+    has_time: true
+
+# --- Türöffner --------------------------------------------------------
+script:
+  klingel_tuer_oeffnen:
+    alias: Tür öffnen
+    icon: mdi:door-open
+    mode: single
+    max_exceeded: silent
+    sequence:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.tueroeffner
+      - delay:
+          seconds: 2
+      - action: switch.turn_off
+        target:
+          entity_id: switch.tueroeffner
+
+# --- Automationen -----------------------------------------------------
+automation:
+  - id: klingel_es_klingelt
+    alias: "Klingel · Es klingelt"
+    description: Livebild, Gong im Browser, Push und Telegram.
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.klingel
+        from: "off"
+        to: "on"
+    actions:
+      - action: timer.start
+        target:
+          entity_id: timer.klingel
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.klingel_zuletzt
+        data:
+          timestamp: "{{ now().timestamp() }}"
+      - action: camera.snapshot
+        continue_on_error: true
+        target:
+          entity_id: camera.haustuer
+        data:
+          filename: /config/www/klingel/letzter_besuch.jpg
+      - parallel:
+          # Gong in jedem offenen Browser / jeder offenen App (browser_mod)
+          - action: media_player.play_media
+            continue_on_error: true
+            target:
+              entity_id:
+                - media_player.tablet_flur
+                - media_player.handy_app
+            data:
+              media_content_id: /local/klingel/gong.mp3
+              media_content_type: music
+          # Push aufs Android-Handy
+          - action: notify.mobile_app_handy
+            continue_on_error: true
+            data:
+              title: Es klingelt
+              message: "Jemand steht an der Haustür · {{ now().strftime('%H:%M') }}"
+              data:
+                image: "/local/klingel/letzter_besuch.jpg?v={{ now().timestamp() | int }}"
+                tag: klingel
+                channel: Türklingel
+                importance: high
+                priority: high
+                ttl: 0
+                clickAction: /dashboard-klingel/haustuer
+                actions:
+                  - action: KLINGEL_OEFFNEN
+                    title: Tür öffnen
+                  - action: URI
+                    title: Livebild
+                    uri: /dashboard-klingel/haustuer
+          # Telegram mit Foto und Knopf
+          - action: telegram_bot.send_photo
+            continue_on_error: true
+            data:
+              file: /config/www/klingel/letzter_besuch.jpg
+              caption: "🔔 Es klingelt · {{ now().strftime('%H:%M') }}"
+              target:
+                - 123456789
+              inline_keyboard:
+                - "🚪 Tür öffnen:/tuer_oeffnen"
+      # Entprellung: 10 s lang wird ein erneutes Drücken ignoriert
+      - delay:
+          seconds: 10
+
+  - id: klingel_oeffnen_push
+    alias: "Klingel · Öffnen aus Push"
+    mode: single
+    triggers:
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: KLINGEL_OEFFNEN
+    conditions:
+      # Nur kurz nach dem Klingeln – alte Nachrichten öffnen nichts
+      - condition: state
+        entity_id: timer.klingel
+        state: active
+    actions:
+      - action: script.klingel_tuer_oeffnen
+      - action: notify.mobile_app_handy
+        data:
+          message: clear_notification
+          data:
+            tag: klingel
+
+  - id: klingel_oeffnen_telegram
+    alias: "Klingel · Öffnen aus Telegram"
+    mode: single
+    triggers:
+      - trigger: event
+        event_type: telegram_callback
+        event_data:
+          data: /tuer_oeffnen
+    variables:
+      # Nur diese Telegram-Benutzer dürfen öffnen
+      erlaubt: [123456789]
+    actions:
+      - choose:
+          - conditions:
+              - "{{ trigger.event.data.user_id in erlaubt }}"
+              - condition: state
+                entity_id: timer.klingel
+                state: active
+            sequence:
+              - action: script.klingel_tuer_oeffnen
+              - action: telegram_bot.answer_callback
+                data:
+                  callback_query_id: "{{ trigger.event.data.id }}"
+                  message: "Tür ist offen 🚪"
+          - conditions:
+              - "{{ trigger.event.data.user_id in erlaubt }}"
+            sequence:
+              - action: telegram_bot.answer_callback
+                data:
+                  callback_query_id: "{{ trigger.event.data.id }}"
+                  message: "Zu spät – dieses Klingeln ist abgelaufen."
+                  show_alert: true
+        default:
+          - action: telegram_bot.answer_callback
+            data:
+              callback_query_id: "{{ trigger.event.data.id }}"
+              message: "Nicht erlaubt."
+
+  - id: klingel_tuer_zu_nach_start
+    alias: "Klingel · Türöffner nach Neustart aus"
+    description: Falls HA mitten im Öffnen neu gestartet ist.
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.tueroeffner
+
+# --- Theme "Cosy" -----------------------------------------------------
+frontend:
+  themes:
+    Cosy:
+      modes:
+        light:
+          primary-color: "#C2643C"
+          rgb-primary-color: "194, 100, 60"
+          accent-color: "#D99A4E"
+          primary-background-color: "#F4EEE6"
+          secondary-background-color: "#EDE5DA"
+          lovelace-background: "radial-gradient(120% 80% at 0% 0%, #FBF4EA 0%, #F4EEE6 45%, #EFE6DB 100%)"
+          card-background-color: "#FFFBF6"
+          ha-card-background: "#FFFBF6"
+          primary-text-color: "#3B2F27"
+          secondary-text-color: "#8A7768"
+          divider-color: "rgba(80, 55, 35, 0.10)"
+          state-icon-color: "#A0806A"
+          app-header-background-color: "#F4EEE6"
+          app-header-text-color: "#3B2F27"
+          sidebar-background-color: "#EFE7DC"
+          ha-card-border-radius: "22px"
+          ha-card-border-width: "0px"
+          ha-card-box-shadow: "0 1px 2px rgba(70, 45, 25, 0.05), 0 10px 30px -12px rgba(70, 45, 25, 0.18)"
+          ha-dialog-border-radius: "24px"
+          error-color: "#C4493B"
+          warning-color: "#D99A4E"
+          success-color: "#6E8B5E"
+        dark:
+          primary-color: "#E3895B"
+          rgb-primary-color: "227, 137, 91"
+          accent-color: "#E8B26A"
+          primary-background-color: "#1C1815"
+          secondary-background-color: "#25201C"
+          lovelace-background: "radial-gradient(120% 80% at 0% 0%, #2A221C 0%, #1C1815 50%, #181411 100%)"
+          card-background-color: "#27211D"
+          ha-card-background: "#27211D"
+          primary-text-color: "#F1E7DC"
+          secondary-text-color: "#B09C8C"
+          divider-color: "rgba(255, 230, 205, 0.08)"
+          state-icon-color: "#C9A48A"
+          app-header-background-color: "#1C1815"
+          app-header-text-color: "#F1E7DC"
+          sidebar-background-color: "#201B17"
+          ha-card-border-radius: "22px"
+          ha-card-border-width: "0px"
+          ha-card-box-shadow: "0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 30px -14px rgba(0, 0, 0, 0.6)"
+          ha-dialog-border-radius: "24px"
+          error-color: "#E06A5A"
+          warning-color: "#E8B26A"
+          success-color: "#8FAE7C"

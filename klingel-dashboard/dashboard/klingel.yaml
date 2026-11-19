@@ -1,0 +1,171 @@
+# Dashboard "Klingel"
+# Einfügen: Dashboard öffnen -> Stift (Bearbeiten) -> ⋮ -> Raw-Konfigurationseditor
+# Entitäten wie in packages/klingel.yaml ersetzen. Zusätzlich:
+#   camera.klingel_letzter_besuch -> Integration "Lokale Datei" (siehe README)
+
+title: Klingel
+views:
+  - title: Haustür
+    path: haustuer
+    icon: mdi:doorbell-video
+    type: sections
+    theme: Cosy
+    max_columns: 3
+    dense_section_placement: false
+    header:
+      layout: start
+      badges_position: bottom
+      card:
+        type: markdown
+        text_only: true
+        content: >-
+          {% set h = now().hour %}
+          {% if h < 5 or h >= 23 %}{% set gruss = 'Gute Nacht' %}
+          {% elif h < 11 %}{% set gruss = 'Guten Morgen' %}
+          {% elif h < 17 %}{% set gruss = 'Schönen Tag' %}
+          {% else %}{% set gruss = 'Guten Abend' %}{% endif %}
+          # {{ gruss }}
+
+          {% if is_state('timer.klingel', 'active') -%}
+          **Es klingelt gerade an der Haustür.**
+          {%- else -%}
+          {% set z = states('input_datetime.klingel_zuletzt') %}
+          {% if z in ['unknown', 'unavailable', ''] -%}
+          Alles ruhig an der Haustür.
+          {%- else -%}
+          {% set t = as_datetime(z) | as_local %}
+          {% set tage = (now().date() - t.date()).days %}
+          Alles ruhig an der Haustür · zuletzt geklingelt
+          {% if tage == 0 %}heute{% elif tage == 1 %}gestern{% else %}am {{ t.strftime('%d.%m.') }}{% endif %}
+          um {{ t.strftime('%H:%M') }}
+          {%- endif %}
+          {%- endif %}
+    badges:
+      - type: entity
+        entity: timer.klingel
+        name: Es klingelt
+        show_name: true
+        show_state: false
+        show_icon: true
+        color: deep-orange
+        tap_action:
+          action: none
+        visibility:
+          - condition: state
+            entity: timer.klingel
+            state: active
+    sections:
+      # ---------------------------------------------------------------
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Haustür
+            heading_style: title
+            icon: mdi:door
+          # Beim Klingeln: Livebild
+          - type: picture-entity
+            entity: camera.haustuer
+            camera_view: live
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+            tap_action:
+              action: more-info
+            visibility:
+              - condition: state
+                entity: timer.klingel
+                state: active
+          # Sonst: ruhiges Standbild
+          - type: picture-entity
+            entity: camera.haustuer
+            camera_view: auto
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+            tap_action:
+              action: more-info
+            visibility:
+              - condition: state
+                entity: timer.klingel
+                state_not: active
+          - type: tile
+            entity: script.klingel_tuer_oeffnen
+            name: Tür öffnen
+            icon: mdi:door-open
+            color: primary
+            show_entity_picture: false
+            vertical: false
+            hide_state: true
+            grid_options:
+              columns: 6
+              rows: 1
+            tap_action:
+              action: perform-action
+              perform_action: script.klingel_tuer_oeffnen
+              confirmation:
+                text: Haustür jetzt öffnen?
+            icon_tap_action:
+              action: perform-action
+              perform_action: script.klingel_tuer_oeffnen
+              confirmation:
+                text: Haustür jetzt öffnen?
+          - type: tile
+            entity: camera.haustuer
+            name: Livebild groß
+            icon: mdi:cctv
+            color: amber
+            hide_state: true
+            grid_options:
+              columns: 6
+              rows: 1
+            tap_action:
+              action: more-info
+            icon_tap_action:
+              action: more-info
+
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Letzter Besuch
+            heading_style: title
+            icon: mdi:account-clock-outline
+          - type: picture-entity
+            entity: camera.klingel_letzter_besuch
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+            tap_action:
+              action: more-info
+          - type: markdown
+            text_only: true
+            grid_options:
+              columns: full
+            content: >-
+              {% set z = states('input_datetime.klingel_zuletzt') %}
+              {% if z in ['unknown', 'unavailable', ''] -%}
+              Noch niemand da gewesen.
+              {%- else -%}
+              {% set t = as_datetime(z) | as_local %}
+              {% set tage = (now().date() - t.date()).days %}
+              {% if tage == 0 %}Heute{% elif tage == 1 %}Gestern{% else %}Am {{ t.strftime('%d.%m.%Y') }}{% endif %}
+              um **{{ t.strftime('%H:%M') }}** Uhr
+              {%- endif %}
+          - type: heading
+            heading: Verlauf
+            heading_style: subtitle
+          - type: logbook
+            target:
+              entity_id:
+                - automation.klingel_es_klingelt
+                - script.klingel_tuer_oeffnen
+            hours_to_show: 48
+            grid_options:
+              columns: full
