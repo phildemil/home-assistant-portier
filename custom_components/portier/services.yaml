@@ -1,0 +1,18 @@
+ring:
+  fields:
+    entry_id:
+      selector:
+        config_entry:
+          integration: portier
+open:
+  fields:
+    entry_id:
+      selector:
+        config_entry:
+          integration: portier
+show:
+  fields:
+    entry_id:
+      selector:
+        config_entry:
+          integration: portier

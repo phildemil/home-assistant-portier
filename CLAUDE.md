@@ -1,0 +1,60 @@
+# Portier – Notizen für Claude Code
+
+Video-Türklingel als Home-Assistant-Integration (`custom_components/portier`). Entstanden als
+Neubau der Idee aus `phildemil/home-assistant-bell` (nicht kopiert). Benutzer spricht Deutsch,
+Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
+
+## Was Portier macht
+- Pro Tür ein Config-Entry: Klingeltaster (binary_sensor, event, input_button, button, switch,
+  input_boolean), Kamera (jede HA-Kamera), Türöffner (switch/light/input_boolean als Impuls,
+  lock → open/unlock, button → press, script, cover), optional Türkontakt und Gong.
+- Klingeln → Overlay mit Livebild auf jeder offenen HA-Seite, Browser-Ton, Push an
+  `notify.mobile_app_*` (Bild + „Tür öffnen“ + „Livebild“), Telegram (`send_photo` mit
+  Inline-Knopf, nur eingetragene Chats dürfen öffnen). Öffnen-Knöpfe sind Einmal-Token mit
+  Ablaufzeit.
+- Seitenleiste „Türklingel“: Türen anlegen/bearbeiten/entfernen (nur Admin), Standbild,
+  Live, Testklingel, Verlauf, Einstellungen pro Gerät (Overlay/Ton an/aus).
+
+## Wichtige Entscheidungen des Benutzers (nicht wieder ändern)
+- Allgemein bauen: jedes Relais, jede Kamera, keine Shelly-Sonderlogik.
+- Türöffner reagiert auf **einen Tipp**, kein Gedrückthalten.
+- **Kein Nachholen** verpasster Klingelereignisse. Es muss einfach im richtigen Moment laufen.
+- Es darf **nie F5 nötig** sein – auch nicht nach HA-Neustart, Stromausfall oder Update.
+- Mehrere Livebilder: im Querformat nebeneinander, kleiner je mehr; hochkant untereinander.
+- Schließen eines **Klingel**-Overlays (×) schließt es auf allen Geräten; von Hand geöffnete
+  Kameraansichten nur lokal. Ein altes × schließt nie ein neueres Klingeln.
+- Browser-Klingelton ist zweitrangig (echter Gong hängt meist am Relais), Auswahl bleibt.
+- `notify.notify` wird im Editor ausgeblendet (würde Push doppelt senden).
+- Später geplant: 2-Wege-Audio (go2rtc/WebRTC).
+
+## Architektur
+- `manager.py` – `PortierDoor`: Trigger-Erkennung (Flanke, Event-Typ-Filter, Entprellung),
+  Klingeln, Öffnen mit Impuls. Ausschalt-Pflicht wird **vor** dem Einschalten gespeichert
+  (`Store`), nach Neustart wird abgeschaltet; Fehlschläge werden wiederholt + Notification.
+- `notifications.py` – Push/Telegram, Einmal-Token, Telegram-Chat-Prüfung.
+- `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`,
+  `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
+- `config_flow.py` – UI-Flows + `PANEL_SCHEMA`/`panel_options` für den Editor in der Seitenleiste.
+- `frontend.py` – Static Path `/portier_static` (ohne Cache-Header), Panel, `add_extra_js_url`,
+  Endpoint `/portier_static/current`, schreibt `config/www/portier/loader.js`, Repair-Hinweis.
+- `yaml_setup.py` + `repairs.py` – Repair mit Knopf trägt in `configuration.yaml` ein:
+  `frontend: extra_module_url: [/local/portier/loader.js]` (Backup + Validierung).
+- `frontend/portier.js` – ein Modul: Controller (Abo, Wiederanmeldung bei `ready` und
+  `component_loaded`, Selbst-Reload bei neuer Version), Overlay, Kamera (Standbild sofort, dann
+  WebRTC über `camera/webrtc/offer`, sonst HLS, sonst MJPEG), Editor, Panel.
+
+## Warum der Lader in configuration.yaml nötig ist
+HA liefert Seiten aus, bevor Integrationen geladen sind. `add_extra_js_url` erreicht Seiten,
+die in diesem Fenster geöffnet wurden (Stromausfall, App-Neuverbindung), nie mehr; HA lädt es
+nicht nach. Dashboard-Ressourcen helfen nicht (die neue Übersicht lädt sie nicht).
+`/local` (= `config/www`) ist ab Sekunde 1 verfügbar; der Lader fragt `/portier_static/current`
+ab, bis Portier läuft, und importiert dann das Modul. Selbes Vorgehen wie card-mod.
+
+## Testen
+- `pytest` mit `pytest-homeassistant-custom-component` (31 Tests in `tests/`).
+- Echter Test: HA in einem venv mit `hass -c <config>`, Playwright für Overlay/Editor.
+  Kritische Szenarien: Seite **während** des HA-Starts geladen, HA-Neustart bei offener Seite,
+  mehrfaches Klingeln, zwei Geräte gleichzeitig (synchrones Schließen).
+- Benutzer-HA: 2026.11.x, erreichbar unter `http://homeassistant.local`, Konfig über Samba
+  `\\homeassistant.local\config`. Bei jeder Änderung `version` in `manifest.json` **und**
+  `VERSION` in `frontend/portier.js` erhöhen.

@@ -1,0 +1,1481 @@
+/*
+ * Portier – Türklingel-Overlay und Seitenleiste für Home Assistant.
+ *
+ * Läuft auf jeder HA-Seite (über frontend.add_extra_js_url). Ein Controller pro
+ * Browser-Tab abonniert `portier/subscribe`. Klingelt es, schwebt über der
+ * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
+ */
+
+const VERSION = "1.3.2";
+const LS_DEVICE = "portier.device";
+const LS_PLAYED = "portier.played.";
+
+/* ------------------------------------------------------------------ helpers */
+
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+const deviceSettings = () => {
+  try {
+    return { overlay: true, sound: true, ...JSON.parse(localStorage.getItem(LS_DEVICE) || "{}") };
+  } catch {
+    return { overlay: true, sound: true };
+  }
+};
+const saveDeviceSettings = (s) => {
+  try {
+    localStorage.setItem(LS_DEVICE, JSON.stringify(s));
+  } catch {
+    /* private mode */
+  }
+};
+
+const timeOf = (iso) =>
+  iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "–";
+
+function relative(iso, now = Date.now()) {
+  if (!iso) return "noch nie";
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  if (s < 10) return "gerade eben";
+  if (s < 60) return `vor ${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `vor ${m} min`;
+  const d = new Date(iso);
+  const today = new Date(now).toDateString() === d.toDateString();
+  return today ? `heute ${timeOf(iso)}` : d.toLocaleDateString([], { day: "numeric", month: "short" }) + ` ${timeOf(iso)}`;
+}
+
+const rootHass = () => document.querySelector("home-assistant")?.hass;
+
+/* -------------------------------------------------------------------- sound */
+
+class Chime {
+  constructor() {
+    this.ctx = null;
+    const unlock = () => this.unlock();
+    // The first tap or key press anywhere in HA unlocks audio for this tab.
+    for (const ev of ["pointerdown", "keydown", "touchstart"]) {
+      window.addEventListener(ev, unlock, { capture: true, passive: true });
+    }
+  }
+
+  get ready() {
+    return this.ctx?.state === "running";
+  }
+
+  unlock() {
+    try {
+      this.ctx ??= new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state === "suspended") this.ctx.resume();
+    } catch {
+      /* no audio */
+    }
+  }
+
+  /** Two (or three) soft bell partials. Returns false if the browser blocks audio. */
+  play(kind = "dingdong", volume = 70) {
+    if (kind === "off") return true;
+    this.unlock();
+    if (!this.ready) return false;
+    const notes = {
+      dingdong: [[659.3, 0], [523.3, 0.55]],
+      soft: [[587.3, 0], [440, 0.7]],
+      triple: [[523.3, 0], [659.3, 0.32], [784, 0.64]],
+    }[kind] || [[659.3, 0], [523.3, 0.55]];
+    const t0 = this.ctx.currentTime + 0.02;
+    const master = this.ctx.createGain();
+    master.gain.value = Math.max(0, Math.min(1, volume / 100)) * 0.5;
+    master.connect(this.ctx.destination);
+    for (const [freq, at] of notes) {
+      for (const [mult, amp] of [[1, 1], [2.76, 0.25], [5.4, 0.08]]) {
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq * mult;
+        g.gain.setValueAtTime(0, t0 + at);
+        g.gain.linearRampToValueAtTime(amp, t0 + at + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 1.6 / mult ** 0.3);
+        osc.connect(g).connect(master);
+        osc.start(t0 + at);
+        osc.stop(t0 + at + 1.8);
+      }
+    }
+    return true;
+  }
+}
+
+/* ------------------------------------------------------------------- camera */
+
+/**
+ * Live camera straight from Home Assistant's camera API:
+ * a snapshot appears immediately, then WebRTC (go2rtc, Nest, Reolink, …),
+ * else HLS where the browser plays it natively, else MJPEG – which every
+ * HA camera provides. Nothing is fetched from outside Home Assistant.
+ */
+class CameraView {
+  constructor(entityId, getHass) {
+    this.entityId = entityId;
+    this.getHass = getHass;
+    this.el = document.createElement("div");
+    this.el.className = "cam";
+    this.still = document.createElement("img");
+    this.still.className = "cam-still";
+    this.still.alt = "";
+    this.el.append(this.still);
+    this.media = null;
+    this.pc = null;
+    this.unsub = null;
+    this.closed = false;
+    this.mode = "";
+  }
+
+  get hass() {
+    return this.getHass();
+  }
+
+  async start() {
+    const hass = this.hass;
+    const state = hass?.states?.[this.entityId];
+    if (!hass || !state) return this.message("Keine Kamera");
+    const pic = state.attributes.entity_picture;
+    if (pic) this.still.src = `${pic}${pic.includes("?") ? "&" : "?"}t=${Date.now()}`;
+    let types = [];
+    try {
+      types = (await hass.callWS({ type: "camera/capabilities", entity_id: this.entityId })).frontend_stream_types || [];
+    } catch {
+      /* old HA: just try MJPEG */
+    }
+    if (this.closed) return;
+    if (types.includes("web_rtc") && window.RTCPeerConnection) {
+      try {
+        await this.webrtc(hass);
+        return;
+      } catch (err) {
+        console.info("Portier: WebRTC nicht möglich, nehme Rückfall", err?.message || err);
+        this.stopWebrtc();
+      }
+    }
+    if (this.closed) return;
+    if (types.includes("hls")) {
+      const probe = document.createElement("video");
+      if (probe.canPlayType("application/vnd.apple.mpegurl")) {
+        try {
+          const { url } = await hass.callWS({ type: "camera/stream", entity_id: this.entityId, format: "hls" });
+          return this.showVideo((v) => (v.src = url), "hls");
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+    await this.mjpeg(hass);
+  }
+
+  webrtc(hass) {
+    return new Promise(async (resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Zeitüberschreitung")), 12000);
+      const fail = (err) => {
+        clearTimeout(timer);
+        reject(err);
+      };
+      try {
+        let config = {};
+        try {
+          const cc = await hass.callWS({ type: "camera/webrtc/get_client_config", entity_id: this.entityId });
+          config = cc.configuration || {};
+        } catch {
+          /* defaults */
+        }
+        const pc = new RTCPeerConnection(config);
+        this.pc = pc;
+        pc.addTransceiver("video", { direction: "recvonly" });
+        pc.addTransceiver("audio", { direction: "recvonly" });
+        const stream = new MediaStream();
+        pc.ontrack = (ev) => {
+          stream.addTrack(ev.track);
+          if (ev.track.kind === "video") {
+            this.showVideo((v) => (v.srcObject = stream), "webrtc");
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === "failed") fail(new Error("Verbindung fehlgeschlagen"));
+        };
+        let sessionId = null;
+        const pending = [];
+        const sendCandidate = (c) =>
+          hass.callWS({ type: "camera/webrtc/candidate", entity_id: this.entityId, session_id: sessionId, candidate: c }).catch(() => {});
+        pc.onicecandidate = (ev) => {
+          if (!ev.candidate) return;
+          const c = ev.candidate.toJSON();
+          sessionId ? sendCandidate(c) : pending.push(c);
+        };
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        this.unsub = await hass.connection.subscribeMessage(
+          async (msg) => {
+            if (msg.type === "session") {
+              sessionId = msg.session_id;
+              pending.splice(0).forEach(sendCandidate);
+            } else if (msg.type === "answer") {
+              await pc.setRemoteDescription({ type: "answer", sdp: msg.answer });
+            } else if (msg.type === "candidate") {
+              try {
+                await pc.addIceCandidate(msg.candidate);
+              } catch {
+                /* ignore late candidates */
+              }
+            } else if (msg.type === "error") {
+              fail(new Error(msg.message || msg.code));
+            }
+          },
+          { type: "camera/webrtc/offer", entity_id: this.entityId, offer: offer.sdp },
+        );
+      } catch (err) {
+        fail(err);
+      }
+    });
+  }
+
+  stopWebrtc() {
+    try {
+      this.unsub?.();
+    } catch {
+      /* already gone */
+    }
+    this.unsub = null;
+    this.pc?.close();
+    this.pc = null;
+  }
+
+  showVideo(attach, mode) {
+    if (this.closed) return;
+    const v = document.createElement("video");
+    v.muted = true;
+    v.autoplay = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    attach(v);
+    v.addEventListener("playing", () => this.el.classList.add("live"), { once: true });
+    v.play?.().catch(() => {});
+    this.swap(v, mode);
+  }
+
+  async mjpeg(hass) {
+    try {
+      const { path } = await hass.callWS({ type: "auth/sign_path", path: `/api/camera_proxy_stream/${this.entityId}` });
+      if (this.closed) return;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.addEventListener("load", () => this.el.classList.add("live"), { once: true });
+      img.src = path;
+      this.swap(img, "mjpeg");
+    } catch {
+      /* the still image stays visible */
+    }
+  }
+
+  message(text) {
+    const p = document.createElement("div");
+    p.className = "cam-empty";
+    p.textContent = text;
+    this.swap(p, "none");
+  }
+
+  swap(node, mode) {
+    if (this.media?.tagName === "IMG") this.media.src = "";
+    this.media?.remove();
+    this.media = node;
+    node.classList.add("cam-media");
+    this.mode = mode;
+    this.el.append(node);
+  }
+
+  destroy() {
+    this.closed = true;
+    this.stopWebrtc();
+    if (this.media) {
+      if (this.media.tagName === "IMG") this.media.src = "";
+      if (this.media.tagName === "VIDEO") {
+        this.media.srcObject?.getTracks?.().forEach((t) => t.stop());
+        this.media.removeAttribute("src");
+        this.media.load?.();
+      }
+      this.media.remove();
+    }
+    this.still.src = "";
+    this.el.remove();
+  }
+}
+
+/* --------------------------------------------------------------- shared css */
+
+const CSS = `
+:host{
+  --pt-plate:#24282C; --pt-plate-2:#2E3338; --pt-edge:#3C4248;
+  --pt-brass:#C9A44C; --pt-brass-hi:#E2C373; --pt-verdigris:#4FA38A;
+  --pt-ink:#F2EFE6; --pt-muted:#9AA0A6; --pt-alert:#E0704F;
+  font-family:var(--ha-font-family-body,var(--paper-font-body1_-_font-family,system-ui,sans-serif));
+  -webkit-font-smoothing:antialiased;
+}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
+
+.plate{background:linear-gradient(180deg,var(--pt-plate-2),var(--pt-plate) 60%);color:var(--pt-ink);
+  border:1px solid var(--pt-edge);border-radius:22px;box-shadow:inset 0 1px 0 #ffffff14}
+.plate-head{display:flex;align-items:center;gap:10px;padding:14px 16px 12px 18px}
+.lamp{width:9px;height:9px;border-radius:50%;background:var(--pt-muted);flex:none}
+.lamp.on{background:var(--pt-brass);box-shadow:0 0 0 0 #c9a44c99;animation:lamp 1.6s ease-out infinite}
+@keyframes lamp{to{box-shadow:0 0 0 10px #c9a44c00}}
+.door-name{font-size:18px;font-weight:600;letter-spacing:.01em;margin:0;flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.since{color:var(--pt-muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.x{border:0;background:none;color:var(--pt-muted);width:36px;height:36px;border-radius:50%;font-size:22px;line-height:1}
+.x:hover{color:var(--pt-ink);background:#ffffff10}
+
+.window{position:relative;margin:0 12px;border-radius:14px;overflow:hidden;background:#111417;
+  aspect-ratio:16/9;box-shadow:inset 0 0 0 1px #00000080,0 0 0 4px #1a1d20}
+.cam,.cam-still,.cam-media{position:absolute;inset:0;width:100%;height:100%}
+.cam-still,.cam-media{object-fit:cover;display:block;background:transparent}
+.cam-still[src=""],.cam-still:not([src]){display:none}
+.cam.live .cam-still{visibility:hidden}
+.cam-empty{display:grid;place-items:center;color:var(--pt-muted);font-size:14px}
+.still{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.flash{position:absolute;left:12px;bottom:14px;padding:6px 12px;border-radius:999px;background:#24282ccc;
+  backdrop-filter:blur(6px);color:var(--pt-brass-hi);font-size:14px;font-weight:600;opacity:0;transform:translateY(6px);
+  transition:opacity .25s,transform .25s;pointer-events:none}
+.flash.show{opacity:1;transform:none}
+.timeline{position:absolute;left:0;right:0;bottom:0;height:3px;background:#ffffff14}
+.timeline>i{display:block;height:100%;background:var(--pt-brass);transform-origin:left;transition:transform 1s linear}
+.timeline.opened>i{background:var(--pt-verdigris)}
+
+.controls{display:flex;align-items:center;gap:14px;padding:14px 18px 18px;min-height:64px}
+.status{flex:1;min-width:0;font-size:13px;color:var(--pt-muted);line-height:1.5}
+.status b{color:var(--pt-ink);font-weight:600}
+.status .warn{color:var(--pt-alert)}
+.quiet{white-space:nowrap;border:1px solid var(--pt-edge);background:none;border-radius:999px;padding:8px 14px;font-size:14px;color:var(--pt-ink)}
+.quiet:hover{background:#ffffff0d}
+
+/* The brass key: hold to open */
+.key{position:relative;flex:none;width:76px;height:76px;border-radius:50%;border:0;padding:0;
+  background:radial-gradient(circle at 35% 30%,var(--pt-brass-hi),var(--pt-brass) 55%,#9b7c33);
+  box-shadow:0 0 0 5px var(--pt-plate),0 0 0 6px var(--pt-edge),0 6px 14px #0007, inset 0 -3px 6px #0004;
+  touch-action:none;user-select:none;-webkit-user-select:none;transition:transform .12s}
+.key:active:not([disabled]){transform:scale(.94)}
+.key svg.glyph{width:30px;height:30px;color:#3a2e10}
+.key .ring{position:absolute;inset:-9px;width:94px;height:94px;transform:rotate(-90deg);pointer-events:none}
+.key .ring circle{fill:none;stroke:var(--pt-ink);stroke-width:3;stroke-linecap:round;stroke-dasharray:70 213;opacity:0}
+.key.busy .ring{animation:spin .9s linear infinite}
+.key.busy .ring circle{opacity:1}
+@keyframes spin{to{transform:rotate(270deg)}}
+.key.done{background:radial-gradient(circle at 35% 30%,#7fd0b7,var(--pt-verdigris) 60%,#2f7663)}
+.key.done svg.glyph{color:#0f2d24}
+.key[disabled]:not(.done):not(.busy){filter:grayscale(1) brightness(.6);cursor:not-allowed}
+.key.busy{cursor:progress}
+.key.done{cursor:default}
+.key-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
+.key-label{font-size:12px;color:var(--pt-muted);white-space:nowrap}
+.key-label.ok{color:var(--pt-verdigris)}
+.key-label.bad{color:var(--pt-alert)}
+
+@media (prefers-reduced-motion:reduce){
+  .lamp.on,.key.busy .ring{animation:none}.timeline>i,.flash,.key{transition:none}
+}
+`;
+
+const KEY_SVG = `<svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm5.65-4A6 6 0 1 0 7 18a6 6 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65Z"/></svg>`;
+const CHECK_SVG = `<svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2Z"/></svg>`;
+
+/** Wires a .key button: one tap opens, with clear feedback while it works. */
+function wireKey(btn, label, onOpen) {
+  const idle = () => {
+    btn.disabled = false;
+    btn.classList.remove("done", "busy");
+    btn.innerHTML = KEY_SVG + RING_SVG;
+    label.textContent = "Tür öffnen";
+    label.classList.remove("ok", "bad");
+  };
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add("busy");
+    label.textContent = "Öffnet …";
+    navigator.vibrate?.(15);
+    try {
+      await onOpen();
+      btn.classList.remove("busy");
+      btn.classList.add("done");
+      btn.innerHTML = CHECK_SVG;
+      label.textContent = "Geöffnet";
+      label.classList.add("ok");
+      navigator.vibrate?.([30, 40, 30]);
+      setTimeout(idle, 3000);
+    } catch (err) {
+      btn.classList.remove("busy");
+      label.textContent = err?.message || "Fehlgeschlagen";
+      label.classList.add("bad");
+      setTimeout(idle, 4000);
+    }
+  });
+}
+const RING_SVG = `<svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="45"/></svg>`;
+
+function keyMarkup(canOpen) {
+  if (!canOpen) return "";
+  return `<div class="key-wrap">
+    <button class="key" aria-label="Tür öffnen">${KEY_SVG}${RING_SVG}</button>
+    <span class="key-label">Tür öffnen</span>
+  </div>`;
+}
+
+/* --------------------------------------------------------------- controller */
+
+class PortierController {
+  constructor() {
+    this.doors = new Map(); // entry_id -> snapshot
+    this.offset = 0; // server clock - local clock (ms)
+    this.listeners = new Set();
+    this.chime = new Chime();
+    this.overlay = null;
+    this.conn = null;
+    this.connect();
+  }
+
+  now() {
+    return Date.now() + this.offset;
+  }
+
+  async connect() {
+    const conn = await this.waitForConnection();
+    this.conn = conn;
+    // After an HA restart the page reconnects before Portier is loaded again, so the
+    // library's automatic re-subscribe fails once and is never retried. We handle
+    // re-subscribing ourselves and keep retrying until Portier answers.
+    conn.addEventListener("ready", () => this.subscribe());
+    // Home Assistant announces every integration as soon as it has finished loading.
+    // The moment Portier is up again after a restart, subscribe – no waiting.
+    conn
+      .subscribeEvents((ev) => {
+        if (ev?.data?.component !== "portier" || this.unsub) return;
+        this.wake ? this.wake() : this.subscribe();
+      }, "component_loaded")
+      .catch(() => {});
+    conn.addEventListener("disconnected", () => {
+      this.unsub = null;
+    });
+    this.subscribe();
+    // Safety net: if nothing arrived for a while although we think we're connected, retry.
+    setInterval(() => {
+      if (this.conn?.connected && !this.unsub && !this.subscribing) this.subscribe();
+    }, 5000);
+  }
+
+  async subscribe() {
+    if (this.subscribing) return;
+    this.subscribing = true;
+    try {
+      this.unsub?.();
+    } catch {
+      /* already gone */
+    }
+    this.unsub = null;
+    let delay = 1000;
+    try {
+      while (this.conn?.connected !== false) {
+        try {
+          this.unsub = await this.conn.subscribeMessage((msg) => this.onMessage(msg), { type: "portier/subscribe" }, { resubscribe: false });
+          return;
+        } catch (err) {
+          if (err?.code === "unknown_command" || err?.code === 3 || err === 3) {
+            // Portier not loaded (yet) – typical right after an HA restart.
+          } else {
+            console.info("Portier: Anmeldung fehlgeschlagen, neuer Versuch", err?.message || err);
+          }
+          // Retry in 2 s, or right away when HA reports that Portier has loaded.
+          await new Promise((r) => {
+            const t = setTimeout(r, delay);
+            this.wake = () => {
+              clearTimeout(t);
+              r();
+            };
+          });
+          this.wake = null;
+          delay = 2000;
+        }
+      }
+    } finally {
+      this.subscribing = false;
+    }
+  }
+
+  async waitForConnection() {
+    for (;;) {
+      if (window.hassConnection) return (await window.hassConnection).conn;
+      const h = rootHass();
+      if (h?.connection) return h.connection;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  /** The server runs a newer Portier than this page: reload once to pick it up. */
+  checkUpdate(serverUrl) {
+    const mine = new URL(import.meta.url).searchParams.get("v");
+    const theirs = serverUrl ? new URL(serverUrl, location.origin).searchParams.get("v") : null;
+    if (!mine || !theirs || mine === theirs) return;
+    const key = `portier.reloaded.${theirs}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      return;
+    }
+    console.info("Portier: neue Version, Seite wird neu geladen");
+    // Fetch the new file past the browser cache first, so the reload really gets it.
+    fetch(serverUrl, { cache: "reload" })
+      .catch(() => {})
+      .finally(() => location.reload());
+  }
+
+  callWS(msg) {
+    const h = rootHass();
+    return h ? h.callWS(msg) : this.conn.sendMessagePromise(msg);
+  }
+
+  onMessage(msg) {
+    if (msg.server_time) this.offset = new Date(msg.server_time).getTime() - Date.now();
+    if (msg.type === "snapshot") {
+      this.checkUpdate(msg.frontend);
+      this.doors = new Map(msg.doors.map((d) => [d.entry_id, d]));
+      this.overlay?.sync();
+    } else if (msg.type === "ring") {
+      const door = this.doors.get(msg.entry_id);
+      if (door) Object.assign(door, { ring_id: msg.ring_id, last_ring: msg.time, view_until: msg.view_until });
+      this.ring(msg.entry_id, msg);
+    } else if (msg.type === "dismiss") {
+      // The ring's live view was closed on another device.
+      this.overlay?.dismissed(msg.entry_id, msg.ring_time);
+    } else if (msg.type === "show") {
+      this.show(msg.entry_id, { manual: true });
+    }
+    for (const fn of this.listeners) fn(msg);
+  }
+
+  async ring(entryId, msg) {
+    const door = this.doors.get(entryId);
+    if (!door) return;
+    const settings = deviceSettings();
+    let audible = true;
+    if (settings.sound && (await this.claimSound(entryId, String(msg.time)))) {
+      audible = this.chime.play(door.sound, door.volume);
+    }
+    if (settings.overlay) this.show(entryId, { ring: true, blocked: !audible });
+  }
+
+  /** Only one tab of this browser plays the sound for a given ring. */
+  async claimSound(entryId, ringTime) {
+    const key = LS_PLAYED + entryId;
+    const claim = () => {
+      try {
+        if (localStorage.getItem(key) === ringTime) return false;
+        localStorage.setItem(key, ringTime);
+      } catch {
+        /* storage blocked: just play */
+      }
+      return true;
+    };
+    if (navigator.locks?.request) return navigator.locks.request(`portier-sound-${entryId}`, claim);
+    return claim();
+  }
+
+  overlayRoot() {
+    if (!this.overlay) {
+      this.overlay = document.createElement("portier-overlay");
+      this.overlay.controller = this;
+      document.body.append(this.overlay);
+    }
+    return this.overlay;
+  }
+
+  show(entryId, opts = {}) {
+    this.overlayRoot().open(entryId, opts);
+  }
+
+  async open(entryId) {
+    try {
+      await this.callWS({ type: "portier/open", entry_id: entryId });
+    } catch (err) {
+      throw new Error(err?.message || "Öffnen fehlgeschlagen");
+    }
+  }
+
+  dismiss(entryId, ringTime) {
+    return this.callWS({ type: "portier/dismiss", entry_id: entryId, ring_time: ringTime }).catch(() => {});
+  }
+
+  testRing(entryId) {
+    return this.callWS({ type: "portier/ring", entry_id: entryId });
+  }
+}
+
+/* ------------------------------------------------------------------ overlay */
+
+class PortierOverlay extends HTMLElement {
+  constructor() {
+    super();
+    this.views = new Map(); // entry_id -> {el, camera, tick}
+    const root = this.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>${CSS}
+      :host{position:fixed;z-index:2147483000;right:max(16px,env(safe-area-inset-right));
+        bottom:max(16px,env(safe-area-inset-bottom));width:var(--w,560px);pointer-events:none;
+        transition:width .32s cubic-bezier(.2,.8,.2,1)}
+      /* padding keeps the plate shadows inside the scroll area */
+      #stack{display:grid;gap:12px;grid-template-columns:repeat(var(--cols,1),minmax(0,1fr));align-items:stretch;
+        max-height:calc(100dvh - 32px + 48px);overflow:auto;overscroll-behavior:contain;scrollbar-width:none;
+        padding:24px;margin:-24px}
+      .plate{pointer-events:auto;box-shadow:inset 0 1px 0 #ffffff14,0 12px 28px #0009;display:flex;flex-direction:column;
+        animation:rise .32s cubic-bezier(.2,.8,.2,1)}
+      .plate.leaving{animation:sink .22s ease-in forwards}
+      .plate .controls{margin-top:auto}
+      .plate.fresh{box-shadow:inset 0 1px 0 #ffffff14,0 0 0 2px var(--pt-brass),0 12px 28px #0009}
+      @keyframes rise{from{opacity:0;transform:translateY(24px) scale(.96)}}
+      @keyframes sink{to{opacity:0;transform:scale(.94)}}
+      /* smaller plates when several doors are shown */
+      :host([data-compact]) .plate{border-radius:18px}
+      :host([data-compact]) .plate-head{padding:10px 12px 8px 14px}
+      :host([data-compact]) .door-name{font-size:16px}
+      :host([data-compact]) .window{margin:0 8px;border-radius:12px}
+      :host([data-compact]) .controls{padding:10px 14px 12px;gap:10px;min-height:96px}
+      :host([data-compact]) .status{font-size:12px}
+      :host([data-compact]) .key{width:58px;height:58px}
+      :host([data-compact]) .key .ring{inset:-8px;width:74px;height:74px}
+      :host([data-compact]) .key svg.glyph{width:24px;height:24px}
+      :host([data-compact]) .key-label{font-size:11px}
+      @media (max-width:600px){:host{left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));width:auto}}
+      @media (prefers-reduced-motion:reduce){:host{transition:none}.plate,.plate.leaving{animation:none}}
+    </style><div id="stack" role="region" aria-live="polite" aria-label="Türklingel"></div>`;
+    this.stack = root.getElementById("stack");
+    this.onResize = () => this.layout(false);
+    window.addEventListener("resize", this.onResize);
+  }
+
+  /**
+   * Arrange all open doors: side by side in landscape, stacked in portrait.
+   * One door is big; each extra door makes them smaller so all stay visible.
+   */
+  layout(animate = true) {
+    const plates = [...this.stack.querySelectorAll(".plate:not(.leaving)")];
+    const n = plates.length;
+    if (!n) return;
+    const before = animate ? new Map(plates.map((p) => [p, p.getBoundingClientRect()])) : null;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const gap = 12;
+    const chrome = 150; // header + controls of a plate, roughly
+    const landscape = vw >= 760 && vw >= vh * 1.05;
+    let cols = 1;
+    let rows = n;
+    if (landscape && n > 1) {
+      cols = n <= 3 ? n : Math.ceil(n / 2);
+      rows = Math.ceil(n / cols);
+    }
+    // Several doors share at most ~80 % of the screen width, so the dashboard stays visible.
+    const avail = cols === 1 ? vw - 32 : Math.min(vw - 32, vw * 0.8);
+    const preferred = [560, 460, 380, 340][Math.min(cols, 4) - 1];
+    // Largest column width that still fits all rows into the screen height.
+    const byHeight = ((vh - 32 - (rows - 1) * gap) / rows - chrome) / 0.5625;
+    const colW = Math.max(240, Math.min(preferred, byHeight, (avail - (cols - 1) * gap) / cols));
+    this.style.setProperty("--cols", cols);
+    this.style.setProperty("--w", `${Math.round(colW * cols + (cols - 1) * gap)}px`);
+    this.toggleAttribute("data-compact", n > 1);
+    if (!before || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    for (const p of plates) {
+      const a = before.get(p);
+      const b = p.getBoundingClientRect();
+      if (!a || !a.width || !b.width) continue;
+      const dx = a.left - b.left;
+      const dy = a.top - b.top;
+      const sx = a.width / b.width;
+      const sy = a.height / b.height;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < 0.01) continue;
+      p.animate(
+        [
+          { transformOrigin: "top left", transform: `translate(${dx}px,${dy}px) scale(${sx},${sy})` },
+          { transformOrigin: "top left", transform: "none" },
+        ],
+        { duration: 340, easing: "cubic-bezier(.2,.8,.2,1)" },
+      );
+    }
+  }
+
+  open(entryId, { ring = false, manual = false, blocked = false } = {}) {
+    const door = this.controller.doors.get(entryId);
+    if (!door) return;
+    let v = this.views.get(entryId);
+    if (!v) {
+      v = this.build(door);
+      this.views.set(entryId, v);
+      this.layout();
+    }
+    if (manual && !ring) {
+      v.until = this.controller.now() + door.live_seconds * 1000;
+    } else {
+      v.until = door.view_until ? new Date(door.view_until).getTime() : this.controller.now() + door.live_seconds * 1000;
+    }
+    v.total = Math.max(1000, v.until - this.controller.now());
+    v.ringing = ring;
+    // Remember which ring this view belongs to; closing it then closes it everywhere.
+    if (ring) {
+      v.opened = false;
+      v.ringTime = door.last_ring;
+    }
+    if (ring) {
+      this.flash(v, blocked ? "Ton blockiert – einmal tippen" : "Es klingelt");
+      v.el.classList.add("fresh");
+      clearTimeout(v.freshTimer);
+      v.freshTimer = setTimeout(() => v.el.classList.remove("fresh"), 6000);
+    }
+    this.render(v);
+  }
+
+  build(door) {
+    const el = document.createElement("section");
+    el.className = "plate";
+    el.setAttribute("aria-label", door.name);
+    el.innerHTML = `
+      <div class="plate-head">
+        <span class="lamp on"></span>
+        <h2 class="door-name">${esc(door.name)}</h2>
+        <span class="since"></span>
+        <button class="x" aria-label="Schließen">×</button>
+      </div>
+      <div class="window">
+        <div class="flash"></div>
+        <div class="timeline"><i></i></div>
+      </div>
+      <div class="controls">
+        <div class="status"></div>
+        ${keyMarkup(door.can_open)}
+      </div>`;
+    const camera = new CameraView(door.camera, rootHass);
+    el.querySelector(".window").prepend(camera.el);
+    camera.start();
+    const v = { entryId: door.entry_id, el, camera, until: 0, total: 1, ringing: false };
+    el.querySelector(".x").addEventListener("click", () => {
+      if (v.ringTime) this.controller.dismiss(door.entry_id, v.ringTime);
+      this.close(door.entry_id);
+    });
+    if (door.can_open) wireKey(el.querySelector(".key"), el.querySelector(".key-label"), () => this.controller.open(door.entry_id));
+    v.tick = setInterval(() => this.render(v), 1000);
+    this.stack.prepend(el);
+    return v;
+  }
+
+  flash(v, text) {
+    const f = v.el.querySelector(".flash");
+    f.textContent = text;
+    f.classList.add("show");
+    clearTimeout(v.flashTimer);
+    v.flashTimer = setTimeout(() => f.classList.remove("show"), 4000);
+  }
+
+  sync() {
+    for (const v of this.views.values()) {
+      const door = this.controller.doors.get(v.entryId);
+      if (!door) {
+        this.close(v.entryId);
+        continue;
+      }
+      // Door was opened (here or elsewhere) after the last ring: switch to the short window.
+      const opened = door.last_opened && (!door.last_ring || door.last_opened >= door.last_ring);
+      if (opened && door.view_until) {
+        const until = new Date(door.view_until).getTime();
+        if (Math.abs(until - v.until) > 1500) {
+          v.until = until;
+          v.total = Math.max(1000, until - this.controller.now());
+        }
+      }
+      v.opened = !!opened;
+      this.render(v);
+    }
+  }
+
+  render(v) {
+    const door = this.controller.doors.get(v.entryId);
+    if (!door) return;
+    const left = v.until - this.controller.now();
+    if (left <= 0) return this.close(v.entryId);
+    const el = v.el;
+    el.querySelector(".since").textContent = door.last_ring ? relative(door.last_ring, this.controller.now()) : "";
+    el.querySelector(".lamp").classList.toggle("on", !!v.ringing && !v.opened);
+    const line = el.querySelector(".timeline");
+    line.classList.toggle("opened", !!v.opened);
+    line.firstElementChild.style.transform = `scaleX(${Math.max(0, Math.min(1, left / v.total))})`;
+    const secs = Math.ceil(left / 1000);
+    el.querySelector(".status").innerHTML = v.opened
+      ? `<b>Tür geöffnet</b><br>Bild schließt in ${secs} s`
+      : `${door.ring_count > 1 ? `${door.ring_count}× geklingelt` : "Livebild"}<br>Schließt in ${secs} s`;
+  }
+
+  /** Close a ring view because it was closed on another device. Manual views stay. */
+  dismissed(entryId, ringTime) {
+    const v = this.views.get(entryId);
+    if (v && v.ringTime && v.ringTime === ringTime) this.close(entryId);
+  }
+
+  close(entryId) {
+    const v = this.views.get(entryId);
+    if (!v) return;
+    this.views.delete(entryId);
+    clearInterval(v.tick);
+    v.el.classList.add("leaving");
+    setTimeout(() => {
+      v.camera.destroy();
+      v.el.remove();
+      this.layout();
+    }, 220);
+  }
+}
+
+/* ------------------------------------------------------------------- editor */
+
+const EDITOR_CSS = `
+dialog.editor{border:0;padding:0;background:transparent;color:var(--pt-ink);width:min(640px,100vw - 24px);max-height:calc(100dvh - 24px)}
+dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
+.editor form{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}
+.editor .plate{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.editor .scroll{overflow:auto;padding:4px 20px 8px;display:grid;gap:4px}
+.editor h2{font-size:19px;margin:0;flex:1}
+.editor fieldset{border:0;border-top:1px solid var(--pt-edge);margin:0;padding:14px 0 10px;display:grid;gap:14px}
+.editor fieldset:first-of-type{border-top:0}
+.editor legend,.editor summary{font-size:13px;color:var(--pt-brass-hi);font-weight:600;padding:0;margin-bottom:4px}
+.editor details{border-top:1px solid var(--pt-edge);padding:12px 0}
+.editor details[open] summary{margin-bottom:14px}
+.editor details>div{display:grid;gap:14px}
+.editor summary{cursor:pointer;list-style:revert}
+.f{display:grid;gap:6px}
+.f>span{font-size:14px}
+.f small{font-size:12px;color:var(--pt-muted);line-height:1.4;max-width:62ch}
+.f small.err{color:var(--pt-alert)}
+.f input[type=text],.f input[type=number],.f select{width:100%;font:inherit;font-size:15px;color:var(--pt-ink);
+  background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px;padding:10px 12px;min-height:44px}
+.f input:focus-visible,.f select:focus-visible{outline:2px solid var(--pt-brass);outline-offset:1px;border-color:transparent}
+.f.bad input,.f.bad select{border-color:var(--pt-alert)}
+.ent{display:flex;gap:6px}
+.ent input{flex:1;min-width:0}
+.ent .clear{border:1px solid var(--pt-edge);background:none;border-radius:10px;width:44px;flex:none;color:var(--pt-muted);font-size:18px}
+.ent-name{font-size:12px;color:var(--pt-verdigris)}
+.ent-name.missing{color:var(--pt-alert)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:520px){.two{grid-template-columns:1fr}}
+.chk{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer}
+.chk input{accent-color:var(--pt-brass);width:18px;height:18px;margin:0;flex:none}
+.checks{display:grid;gap:8px;padding:10px 12px;background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px}
+.inline{display:flex;gap:10px;align-items:center}
+.inline select{flex:1}
+.inline input[type=range]{flex:1;accent-color:var(--pt-brass)}
+.inline output{width:3.5em;text-align:right;font-variant-numeric:tabular-nums;color:var(--pt-muted)}
+.foot{display:flex;gap:10px;align-items:center;padding:14px 20px 18px;border-top:1px solid var(--pt-edge)}
+.foot .grow{flex:1}
+.primary{border:0;border-radius:999px;padding:10px 20px;background:var(--pt-brass);color:#2b230c;font-weight:600;font-size:15px}
+.primary:hover{background:var(--pt-brass-hi)}
+.primary[disabled]{opacity:.6}
+.danger{border:1px solid #e0704f66;background:none;color:var(--pt-alert);border-radius:999px;padding:9px 14px;font-size:14px}
+.danger.armed{background:var(--pt-alert);color:#fff;border-color:transparent}
+.formerr{color:var(--pt-alert);font-size:13px;padding:0 20px}
+`;
+
+const DOMAINS = {
+  trigger: ["binary_sensor", "event", "input_boolean", "input_button", "button", "switch"],
+  camera: ["camera"],
+  opener: ["switch", "light", "input_boolean", "button", "input_button", "lock", "script", "cover"],
+  contact: ["binary_sensor", "input_boolean", "lock", "cover"],
+  gong: ["switch", "light", "input_boolean", "button", "input_button", "script", "siren"],
+};
+
+const ERRORS = {
+  same_entity: "Der Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
+  opener_in_use: "Dieser Türöffner gehört schon zu einer anderen Tür.",
+};
+
+function notifyLabel(service, labels) {
+  if (labels?.[service]) return `📱 ${labels[service]}`;
+  if (service.startsWith("mobile_app_")) return `📱 ${service.slice(11).replace(/_/g, " ")}`;
+  return service.replace(/_/g, " ");
+}
+
+class PortierEditor extends HTMLElement {
+  async open({ hass, entryId }) {
+    this.hass = hass;
+    this.entryId = entryId;
+    let cfg;
+    try {
+      cfg = await hass.callWS({ type: "portier/config" });
+    } catch (err) {
+      alert(`Einstellungen konnten nicht geladen werden: ${err?.message || err}`);
+      this.remove();
+      return;
+    }
+    this.cfg = cfg;
+    const v = entryId ? cfg.doors[entryId] : { ...cfg.defaults, name: "" };
+    this.v = v;
+    this.innerHTML = this.markup(v, cfg);
+    this.dialog = this.querySelector("dialog");
+    this.wire();
+    this.dialog.addEventListener("close", () => this.remove());
+    this.dialog.showModal();
+    if (!entryId) this.querySelector("[name=name]").focus();
+  }
+
+  entityField(key, label, domains, value, help = "", required = false) {
+    const list = Object.values(this.hass.states)
+      .filter((s) => domains.includes(s.entity_id.split(".")[0]))
+      .sort((a, b) => (a.attributes.friendly_name || a.entity_id).localeCompare(b.attributes.friendly_name || b.entity_id));
+    const opts = list
+      .map((s) => `<option value="${esc(s.entity_id)}">${esc(s.attributes.friendly_name || "")}</option>`)
+      .join("");
+    return `<label class="f" data-f="${key}">
+      <span>${esc(label)}${required ? "" : ` <small>(optional)</small>`}</span>
+      <div class="ent">
+        <input type="text" name="${key}" list="dl-${key}" value="${esc(value || "")}" autocomplete="off" spellcheck="false"
+          placeholder="Tippen zum Suchen …" ${required ? "required" : ""}>
+        ${required ? "" : `<button type="button" class="clear" aria-label="${esc(label)} leeren">×</button>`}
+      </div>
+      <datalist id="dl-${key}">${opts}</datalist>
+      <span class="ent-name"></span>
+      ${help ? `<small>${help}</small>` : ""}
+    </label>`;
+  }
+
+  num(key, label, value, unit, min, max, step = 1, help = "") {
+    return `<label class="f" data-f="${key}"><span>${esc(label)}</span>
+      <div class="inline"><input type="number" name="${key}" value="${esc(value)}" min="${min}" max="${max}" step="${step}"><span>${unit}</span></div>
+      ${help ? `<small>${help}</small>` : ""}</label>`;
+  }
+
+  select(key, label, value, options, help = "") {
+    return `<label class="f" data-f="${key}"><span>${esc(label)}</span>
+      <select name="${key}">${options.map(([val, text]) => `<option value="${val}" ${val === value ? "selected" : ""}>${esc(text)}</option>`).join("")}</select>
+      ${help ? `<small>${help}</small>` : ""}</label>`;
+  }
+
+  check(key, label, value, help = "") {
+    return `<div class="f" data-f="${key}"><label class="chk"><input type="checkbox" name="${key}" ${value ? "checked" : ""}>${esc(label)}</label>
+      ${help ? `<small>${help}</small>` : ""}</div>`;
+  }
+
+  markup(v, cfg) {
+    // "notify" alone is HA's send-to-everyone service; it only causes duplicates here,
+    // so it is shown only if a door already uses it.
+    const notifyChecks = [...new Set([...cfg.notify_services.filter((x) => x !== "notify"), ...(v.notify_services || [])])]
+      .map(
+        (svc) => `<label class="chk"><input type="checkbox" name="notify_services" value="${esc(svc)}"
+          ${(v.notify_services || []).includes(svc) ? "checked" : ""}>${esc(notifyLabel(svc, cfg.notify_labels))}</label>`,
+      )
+      .join("");
+    return `<dialog class="editor" aria-label="${this.entryId ? "Tür bearbeiten" : "Neue Tür"}">
+    <form method="dialog" novalidate><div class="plate">
+      <div class="plate-head">
+        <h2>${this.entryId ? esc(v.name) : "Neue Tür"}</h2>
+        <button type="button" class="x" data-act="cancel" aria-label="Schließen">×</button>
+      </div>
+      <div class="scroll">
+        <fieldset><legend>Geräte</legend>
+          <label class="f" data-f="name"><span>Name der Tür</span>
+            <input type="text" name="name" value="${esc(v.name)}" placeholder="z. B. Haustür" required maxlength="60"></label>
+          ${this.entityField("trigger_entity", "Klingeltaster", DOMAINS.trigger, v.trigger_entity,
+            "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.", true)}
+          ${this.entityField("camera_entity", "Kamera", DOMAINS.camera, v.camera_entity)}
+          ${this.entityField("opener_entity", "Türöffner", DOMAINS.opener, v.opener_entity,
+            "Relais, Schalter oder Helfer bekommen einen Impuls. Schloss wird geöffnet, Taste gedrückt, Skript ausgeführt.")}
+          ${this.entityField("contact_entity", "Türkontakt", DOMAINS.contact, v.contact_entity, "Zeigt an, ob die Tür offen ist.")}
+          ${this.entityField("gong_entity", "Gong", DOMAINS.gong, v.gong_entity, "Ein echter Gong, der bei jedem Klingeln kurz angesteuert wird.")}
+        </fieldset>
+        <fieldset><legend>Benachrichtigungen</legend>
+          <div class="f"><span>Push-Nachricht an</span>
+            <div class="checks">${notifyChecks || `<small>Keine Benachrichtigungsdienste gefunden. Installiere die Home-Assistant-App auf dem Handy.</small>`}</div>
+            <small>Handys mit der Home-Assistant-App bekommen Kamerabild und Öffnen-Knopf.</small></div>
+          <label class="f" data-f="telegram_targets"><span>Telegram-Chat-IDs</span>
+            <input type="text" name="telegram_targets" value="${esc(v.telegram_targets || "")}" placeholder="z. B. 123456789, -100987654" inputmode="numeric">
+            <small>${cfg.telegram ? "Kommagetrennt. Nur diese Chats dürfen über den Knopf öffnen." : "Die Telegram-Bot-Integration ist in Home Assistant noch nicht eingerichtet."}</small></label>
+          ${this.check("notify_allow_open", "„Tür öffnen“-Knopf in der Nachricht", v.notify_allow_open, "Jeder Knopf öffnet nur einmal. Am Handy ist die Entsperrung nötig.")}
+          <div class="two">
+            ${this.num("action_window_minutes", "Knopf gültig für", v.action_window_minutes, "min", 1, 60)}
+            ${this.num("notify_cooldown", "Mindestabstand", v.notify_cooldown, "s", 0, 600, 1)}
+          </div>
+        </fieldset>
+        <fieldset><legend>Livebild & Ton</legend>
+          <div class="f" data-f="sound"><span>Klingelton im Browser</span>
+            <div class="inline"><select name="sound">
+              ${[["dingdong", "Ding-Dong"], ["soft", "Sanft"], ["triple", "Dreiklang"], ["off", "Aus"]]
+                .map(([k, t]) => `<option value="${k}" ${k === v.sound ? "selected" : ""}>${t}</option>`).join("")}
+            </select><button type="button" class="quiet" data-act="preview">Anhören</button></div></div>
+          <label class="f" data-f="volume"><span>Lautstärke</span>
+            <div class="inline"><input type="range" name="volume" min="0" max="100" step="5" value="${esc(v.volume)}"><output>${esc(v.volume)} %</output></div></label>
+          <div class="two">
+            ${this.num("live_seconds", "Livebild offen lassen", v.live_seconds, "s", 5, 3600)}
+            ${this.num("after_open_seconds", "Nach dem Öffnen noch", v.after_open_seconds, "s", 1, 3600)}
+          </div>
+        </fieldset>
+        <details><summary>Türöffner & Gong</summary><div>
+          ${this.select("pulse_mode", "Wer schaltet das Relais wieder aus?", v.pulse_mode, [
+            ["portier", "Portier, nach der Impulsdauer"],
+            ["device", "Das Relais selbst (eigener Auto-Aus-Timer)"],
+          ], "„Relais selbst“ nur wählen, wenn im Gerät ein Auto-Aus eingestellt ist, z. B. Shelly „Auto Off“. Das ist am sichersten.")}
+          <div class="two">
+            ${this.num("pulse_seconds", "Impuls Türöffner", v.pulse_seconds, "s", 0.1, 60, 0.1)}
+            ${this.num("gong_seconds", "Impuls Gong", v.gong_seconds, "s", 0.1, 30, 0.1)}
+          </div>
+          ${this.check("open_admin_only", "Nur Administratoren dürfen öffnen", v.open_admin_only)}
+        </div></details>
+        <details><summary>Klingeltaster genauer einstellen</summary><div>
+          ${this.select("trigger_edge", "Auslösen bei", v.trigger_edge, [
+            ["on", "Einschalten (Standard)"], ["off", "Ausschalten (invertierter Eingang)"], ["both", "Beides"],
+          ])}
+          <label class="f" data-f="event_types"><span>Nur diese Event-Typen</span>
+            <input type="text" name="event_types" value="${esc((v.event_types || []).join(", "))}" placeholder="z. B. single_push">
+            <small>Nur für Event-Entitäten. Leer bedeutet: jeder Tastendruck.</small></label>
+          ${this.num("debounce_seconds", "Entprellung", v.debounce_seconds, "s", 0, 30, 0.1, "Mehrfaches Drücken innerhalb dieser Zeit zählt als ein Klingeln.")}
+        </div></details>
+      </div>
+      <p class="formerr" hidden></p>
+      <div class="foot">
+        ${this.entryId ? `<button type="button" class="danger" data-act="delete">Tür entfernen</button>` : ""}
+        <span class="grow"></span>
+        <button type="button" class="quiet" data-act="cancel">Abbrechen</button>
+        <button type="submit" class="primary">${this.entryId ? "Speichern" : "Tür anlegen"}</button>
+      </div>
+    </div></form></dialog>`;
+  }
+
+  wire() {
+    const q = (s) => this.querySelector(s);
+    this.querySelectorAll("[data-act=cancel]").forEach((b) => b.addEventListener("click", () => this.dialog.close()));
+    this.dialog.addEventListener("cancel", () => this.dialog.close());
+    // Show the friendly name below each entity field.
+    this.querySelectorAll(".ent input").forEach((inp) => {
+      const out = inp.closest(".f").querySelector(".ent-name");
+      const update = () => {
+        const id = inp.value.trim();
+        const st = this.hass.states[id];
+        out.textContent = !id ? "" : st ? `✓ ${st.attributes.friendly_name || id}` : "Nicht gefunden";
+        out.classList.toggle("missing", !!id && !st);
+      };
+      inp.addEventListener("input", update);
+      update();
+      inp.closest(".f").querySelector(".clear")?.addEventListener("click", () => {
+        inp.value = "";
+        update();
+        inp.focus();
+      });
+    });
+    const vol = q("[name=volume]");
+    vol.addEventListener("input", () => (vol.nextElementSibling.value = `${vol.value} %`));
+    q("[data-act=preview]").addEventListener("click", () => {
+      const kind = q("[name=sound]").value;
+      ctrl.chime.play(kind === "off" ? "dingdong" : kind, Number(vol.value));
+    });
+    const del = q("[data-act=delete]");
+    del?.addEventListener("click", async () => {
+      if (!del.classList.contains("armed")) {
+        del.classList.add("armed");
+        del.textContent = "Wirklich entfernen?";
+        setTimeout(() => {
+          del.classList.remove("armed");
+          del.textContent = "Tür entfernen";
+        }, 4000);
+        return;
+      }
+      del.disabled = true;
+      try {
+        await this.hass.callWS({ type: "portier/door/delete", entry_id: this.entryId });
+        ctrl.doors.delete(this.entryId);
+        ctrl.listeners.forEach((fn) => fn({ type: "local" }));
+        this.dialog.close();
+      } catch (err) {
+        this.showError({ base: err?.message || "Entfernen fehlgeschlagen" });
+        del.disabled = false;
+      }
+    });
+    q("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.save();
+    });
+  }
+
+  collect() {
+    const f = this.querySelector("form");
+    const val = (n) => f.elements[n]?.value?.trim?.() ?? "";
+    const num = (n) => Number(val(n).replace(",", "."));
+    return {
+      name: val("name"),
+      trigger_entity: val("trigger_entity"),
+      camera_entity: val("camera_entity") || null,
+      opener_entity: val("opener_entity") || null,
+      contact_entity: val("contact_entity") || null,
+      gong_entity: val("gong_entity") || null,
+      notify_services: [...f.querySelectorAll("[name=notify_services]:checked")].map((c) => c.value),
+      telegram_targets: val("telegram_targets"),
+      notify_allow_open: f.elements.notify_allow_open.checked,
+      action_window_minutes: num("action_window_minutes"),
+      notify_cooldown: num("notify_cooldown"),
+      sound: val("sound"),
+      volume: num("volume"),
+      live_seconds: num("live_seconds"),
+      after_open_seconds: num("after_open_seconds"),
+      pulse_mode: val("pulse_mode"),
+      pulse_seconds: num("pulse_seconds"),
+      gong_seconds: num("gong_seconds"),
+      open_admin_only: f.elements.open_admin_only.checked,
+      trigger_edge: val("trigger_edge"),
+      event_types: val("event_types"),
+      debounce_seconds: num("debounce_seconds"),
+    };
+  }
+
+  showError(errors) {
+    this.querySelectorAll(".f.bad").forEach((el) => el.classList.remove("bad"));
+    this.querySelectorAll("small.err").forEach((el) => el.remove());
+    const general = [];
+    for (const [key, msg] of Object.entries(errors)) {
+      const text = ERRORS[msg] || msg;
+      const field = this.querySelector(`[data-f="${key}"]`);
+      if (field) {
+        field.classList.add("bad");
+        const small = document.createElement("small");
+        small.className = "err";
+        small.textContent = text;
+        field.append(small);
+        field.closest("details")?.setAttribute("open", "");
+      } else general.push(text);
+    }
+    const box = this.querySelector(".formerr");
+    box.hidden = !general.length && !Object.keys(errors).length;
+    box.textContent = general.length ? general.join(" ") : "Bitte die markierten Felder prüfen.";
+    this.querySelector(".bad input, .bad select")?.focus();
+  }
+
+  async save() {
+    const data = this.collect();
+    const local = {};
+    if (!data.name) local.name = "Bitte einen Namen eingeben.";
+    if (!data.trigger_entity) local.trigger_entity = "Bitte den Klingeltaster auswählen.";
+    for (const k of ["trigger_entity", "camera_entity", "opener_entity", "contact_entity", "gong_entity"]) {
+      if (data[k] && !this.hass.states[data[k]]) local[k] = "Diese Entität gibt es nicht.";
+    }
+    if (Object.keys(local).length) return this.showError(local);
+    const btn = this.querySelector(".primary");
+    btn.disabled = true;
+    btn.textContent = "Speichert …";
+    try {
+      await this.hass.callWS({ type: "portier/door/save", options: data, ...(this.entryId ? { entry_id: this.entryId } : {}) });
+      this.dialog.close();
+    } catch (err) {
+      let errors;
+      try {
+        errors = JSON.parse(err?.message);
+      } catch {
+        errors = { base: err?.message || "Speichern fehlgeschlagen" };
+      }
+      this.showError(errors);
+      btn.disabled = false;
+      btn.textContent = this.entryId ? "Speichern" : "Tür anlegen";
+    }
+  }
+}
+
+/* -------------------------------------------------------------------- panel */
+
+class PortierPanel extends HTMLElement {
+  constructor() {
+    super();
+    this._hass = null;
+    this.cards = new Map();
+    this.live = new Map(); // entry_id -> CameraView
+    const root = this.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>${CSS}
+      :host{display:block;min-height:100%;background:var(--primary-background-color,#1c1f22);
+        color:var(--primary-text-color,#e8e8e8)}
+      .bar{display:flex;align-items:center;gap:8px;height:56px;padding:0 8px 0 4px;
+        background:var(--app-header-background-color,var(--primary-color));color:var(--app-header-text-color,#fff)}
+      .bar h1{font-size:20px;font-weight:400;margin:0 0 0 8px}
+      .menu{border:0;background:none;width:48px;height:48px;border-radius:50%;color:inherit;display:grid;place-items:center}
+      main{max-width:1180px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:20px}
+      .doors{display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr))}
+      .meta{padding:14px 18px 0;display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--pt-muted)}
+      .meta b{color:var(--pt-ink);font-weight:500}
+      .actions{display:flex;gap:8px;flex-wrap:wrap}
+      details{border-top:1px solid var(--pt-edge);margin:0 18px;padding:10px 0 14px}
+      summary{cursor:pointer;font-size:14px;color:var(--pt-muted)}
+      ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px;font-size:14px;font-variant-numeric:tabular-nums}
+      ol li{display:flex;justify-content:space-between;color:var(--pt-ink)}
+      ol li span{color:var(--pt-muted)}
+      .live-btn{position:absolute;right:10px;top:10px;z-index:2;border:0;border-radius:999px;padding:6px 12px;
+        background:#24282ccc;backdrop-filter:blur(6px);color:var(--pt-ink);font-size:13px}
+      .device{background:var(--card-background-color,#24282c);color:var(--primary-text-color);
+        border:1px solid var(--divider-color,#3c4248);border-radius:16px;padding:16px 18px;display:grid;gap:12px}
+      .device h2{font-size:16px;margin:0;font-weight:600}
+      .device p{margin:0;font-size:13px;color:var(--secondary-text-color,#9aa0a6);max-width:70ch}
+      .row{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:14px}
+      .switch{appearance:none;width:42px;height:24px;border-radius:999px;background:var(--divider-color,#555);position:relative;cursor:pointer;flex:none;margin:0}
+      .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s}
+      .switch:checked{background:var(--pt-brass)}
+      .switch:checked::after{transform:translateX(18px)}
+      .switch:focus-visible{outline:2px solid var(--pt-brass);outline-offset:2px}
+      .device .quiet{color:var(--primary-text-color);border-color:var(--divider-color,#555)}
+      .empty{text-align:center;padding:48px 16px;color:var(--secondary-text-color);display:grid;gap:16px;justify-items:center}
+      .bar .spacer{flex:1}
+      .add{border:0;border-radius:999px;padding:8px 16px;background:var(--pt-brass);color:#2b230c;font-weight:600;font-size:14px}
+      .add:hover{background:var(--pt-brass-hi)}
+      .device{max-width:720px}
+      .gear{border:0;background:none;color:var(--pt-muted);width:36px;height:36px;border-radius:50%;display:grid;place-items:center}
+      .gear:hover{color:var(--pt-ink);background:#ffffff10}
+      ${EDITOR_CSS}
+    </style>
+    <div class="bar"><button class="menu" aria-label="Menü"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg></button><h1>Türklingel</h1><span class="spacer"></span><button class="add" data-act="add" hidden>+ Tür hinzufügen</button></div>
+    <main>
+      <div class="doors"></div>
+      <section class="device">
+        <h2>Dieses Gerät</h2>
+        <p>Gilt nur für diesen Browser. Push aufs Handy und Telegram stellst du in den Einstellungen der Tür ein.</p>
+        <label class="row">Livebild einblenden, wenn es klingelt<input type="checkbox" class="switch" data-k="overlay"></label>
+        <label class="row">Klingelton abspielen<input type="checkbox" class="switch" data-k="sound"></label>
+        <div class="row"><span class="sound-state"></span><button class="quiet" data-act="sound-test">Ton testen</button></div>
+      </section>
+    </main>`;
+    this.$ = (s) => root.querySelector(s);
+    this.$(".menu").addEventListener("click", () =>
+      this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })),
+    );
+    const settings = deviceSettings();
+    root.querySelectorAll(".switch").forEach((sw) => {
+      sw.checked = settings[sw.dataset.k];
+      sw.addEventListener("change", () => saveDeviceSettings({ ...deviceSettings(), [sw.dataset.k]: sw.checked }));
+    });
+    this.$("[data-act=sound-test]").addEventListener("click", () => {
+      const door = [...ctrl.doors.values()][0];
+      ctrl.chime.play(door?.sound === "off" ? "dingdong" : door?.sound, door?.volume ?? 70);
+      this.renderSoundState();
+    });
+    this.$("[data-act=add]").addEventListener("click", () => this.edit(null));
+    this.onMsg = () => this.render();
+  }
+
+  get isAdmin() {
+    return !!(this._hass || rootHass())?.user?.is_admin;
+  }
+
+  async edit(entryId) {
+    const editor = document.createElement("portier-editor");
+    this.shadowRoot.append(editor);
+    editor.open({ hass: this._hass || rootHass(), entryId });
+  }
+
+  set hass(h) {
+    this._hass = h;
+    if (!this.cards.size && ctrl.doors.size) this.render();
+    this.$("[data-act=add]").hidden = !h?.user?.is_admin;
+  }
+
+  set narrow(n) {
+    this.$(".menu").style.display = n ? "" : "none";
+  }
+
+  connectedCallback() {
+    ctrl.listeners.add(this.onMsg);
+    this.render();
+    this.ticker = setInterval(() => this.refresh(), 10000);
+  }
+
+  disconnectedCallback() {
+    ctrl.listeners.delete(this.onMsg);
+    clearInterval(this.ticker);
+    for (const v of this.live.values()) v.destroy();
+    this.live.clear();
+    this.cards.clear();
+  }
+
+  renderSoundState() {
+    this.$(".sound-state").textContent = ctrl.chime.ready
+      ? "Ton ist in diesem Browser freigeschaltet."
+      : "Ton wird beim ersten Tippen auf die Seite freigeschaltet.";
+  }
+
+  render() {
+    const box = this.$(".doors");
+    const doors = [...ctrl.doors.values()];
+    if (!doors.length) {
+      box.innerHTML = `<div class="empty"><span>Noch keine Tür eingerichtet.</span>
+        ${this.isAdmin ? `<button class="add">+ Erste Tür hinzufügen</button>` : `<span>Ein Administrator kann hier Türen anlegen.</span>`}</div>`;
+      box.querySelector(".add")?.addEventListener("click", () => this.edit(null));
+      for (const v of this.live.values()) v.destroy();
+      this.live.clear();
+      this.cards.clear();
+      return;
+    }
+    if (box.querySelector(".empty")) box.innerHTML = "";
+    // A door briefly disappears while it reloads after saving; only remove its card
+    // if it is still gone a few seconds later.
+    for (const id of [...this.cards.keys()]) {
+      if (ctrl.doors.has(id)) continue;
+      if (this.removing?.has(id)) continue;
+      (this.removing ??= new Map()).set(
+        id,
+        setTimeout(() => {
+          this.removing.delete(id);
+          if (ctrl.doors.has(id)) return;
+          this.cards.get(id)?.remove();
+          this.cards.delete(id);
+          this.live.get(id)?.destroy();
+          this.live.delete(id);
+        }, 4000),
+      );
+    }
+    // Keep the order of the doors stable (alphabetical), whatever order updates arrive in.
+    const sorted = doors.slice().sort((a, b) => a.name.localeCompare(b.name, "de"));
+    sorted.forEach((door, index) => {
+      if (this.removing?.has(door.entry_id)) {
+        clearTimeout(this.removing.get(door.entry_id));
+        this.removing.delete(door.entry_id);
+      }
+      let card = this.cards.get(door.entry_id);
+      if (!card) {
+        card = this.buildCard(door);
+        this.cards.set(door.entry_id, card);
+      }
+      // Move only cards that are out of place, so a running live view is not interrupted.
+      if (box.children[index] !== card) box.insertBefore(card, box.children[index] || null);
+      this.fill(card, door);
+    });
+    this.renderSoundState();
+  }
+
+  buildCard(door) {
+    const el = document.createElement("article");
+    el.className = "plate";
+    el.innerHTML = `
+      <div class="plate-head">
+        <span class="lamp"></span>
+        <h2 class="door-name"></h2>
+        <button class="gear" data-act="edit" title="Tür bearbeiten" aria-label="Tür bearbeiten"><svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/></svg></button>
+      </div>
+      <div class="window">
+        <img class="still" alt="">
+        <button class="live-btn">Live ansehen</button>
+      </div>
+      <div class="meta"></div>
+      <div class="controls">
+        <div class="status actions">
+          <button class="quiet" data-act="test">Testklingel</button>
+        </div>
+        ${keyMarkup(door.can_open)}
+      </div>
+      <details><summary>Klingelverlauf</summary><ol></ol></details>`;
+    el.querySelector(".live-btn").addEventListener("click", () => this.toggleLive(door.entry_id, el));
+    const gear = el.querySelector("[data-act=edit]");
+    gear.hidden = !this.isAdmin;
+    gear.addEventListener("click", () => this.edit(door.entry_id));
+    el.querySelector("[data-act=test]").addEventListener("click", (e) => {
+      e.target.disabled = true;
+      ctrl.testRing(door.entry_id).finally(() => setTimeout(() => (e.target.disabled = false), 2000));
+    });
+    if (door.can_open) wireKey(el.querySelector(".key"), el.querySelector(".key-label"), () => ctrl.open(door.entry_id));
+    return el;
+  }
+
+  toggleLive(entryId, el) {
+    const btn = el.querySelector(".live-btn");
+    const existing = this.live.get(entryId);
+    if (existing) {
+      existing.destroy();
+      this.live.delete(entryId);
+      btn.textContent = "Live ansehen";
+      return;
+    }
+    const door = ctrl.doors.get(entryId);
+    const view = new CameraView(door.camera, () => this._hass || rootHass());
+    el.querySelector(".window").insertBefore(view.el, btn);
+    view.start();
+    this.live.set(entryId, view);
+    btn.textContent = "Live beenden";
+  }
+
+  stateText(entityId) {
+    const s = entityId && this._hass?.states[entityId];
+    if (!s) return null;
+    const map = {
+      on: "offen", off: "zu", open: "offen", closed: "zu", opening: "öffnet", closing: "schließt",
+      locked: "verriegelt", unlocked: "entriegelt", open_lock: "offen", unavailable: "nicht erreichbar",
+    };
+    return map[s.state] || s.state;
+  }
+
+  fill(card, door) {
+    card.querySelector(".door-name").textContent = door.name;
+    card.querySelector(".lamp").classList.toggle("on", !!door.last_ring && ctrl.now() - new Date(door.last_ring) < 60000);
+    const contact = this.stateText(door.contact);
+    const opener = door.opener ? this.stateText(door.opener) : null;
+    card.querySelector(".meta").innerHTML = [
+      `Zuletzt geklingelt <b>${esc(relative(door.last_ring, ctrl.now()))}</b>`,
+      contact ? `Tür <b>${esc(contact)}</b>` : "",
+      door.last_opened ? `Zuletzt geöffnet <b>${esc(relative(door.last_opened, ctrl.now()))}</b>` : "",
+      opener && ["on", "unlocked", "open"].includes(this._hass?.states[door.opener]?.state) ? `Öffner <b>aktiv</b>` : "",
+    ]
+      .filter(Boolean)
+      .map((t) => `<span>${t}</span>`)
+      .join("");
+    const list = card.querySelector("ol");
+    list.innerHTML = door.history.length
+      ? door.history
+          .map(
+            (r) =>
+              `<li>${esc(new Date(r.time).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" }))}<span>${r.source === "test" ? "Test" : ""}</span></li>`,
+          )
+          .join("")
+      : `<li><span>Seit dem letzten Neustart hat niemand geklingelt.</span></li>`;
+    card.querySelector("details summary").textContent = `Klingelverlauf (${door.history.length})`;
+    if (!this.live.has(door.entry_id)) this.refreshStill(card, door);
+    const live = card.querySelector(".live-btn");
+    live.hidden = !door.camera;
+  }
+
+  refreshStill(card, door) {
+    const img = card.querySelector(".still");
+    const pic = door.camera && this._hass?.states[door.camera]?.attributes?.entity_picture;
+    if (pic) {
+      const src = `${pic}${pic.includes("?") ? "&" : "?"}t=${Math.floor(Date.now() / 10000)}`;
+      if (img.getAttribute("src") !== src) img.src = src;
+    } else {
+      img.removeAttribute("src");
+    }
+  }
+
+  refresh() {
+    for (const [id, card] of this.cards) {
+      const door = ctrl.doors.get(id);
+      if (door) this.fill(card, door);
+    }
+  }
+}
+
+/* --------------------------------------------------------------------- boot */
+
+// After an update the browser may still run the previous version (HA restarts don't
+// reload the page). Mixing versions breaks things, so reload once to get the new one.
+if (window.__portier && window.__portier.version !== VERSION) {
+  const key = `portier.reloaded.${VERSION}`;
+  let already = false;
+  try {
+    already = sessionStorage.getItem(key) === "1";
+    sessionStorage.setItem(key, "1");
+  } catch {
+    /* ignore */
+  }
+  if (!already) location.reload();
+}
+const ctrl = (window.__portier ??= new PortierController());
+ctrl.version ??= VERSION;
+if (!customElements.get("portier-overlay")) customElements.define("portier-overlay", PortierOverlay);
+if (!customElements.get("portier-editor")) customElements.define("portier-editor", PortierEditor);
+if (!customElements.get("portier-panel")) customElements.define("portier-panel", PortierPanel);
+console.info(`%c Portier %c ${VERSION} `, "background:#C9A44C;color:#24282C;font-weight:600", "background:#24282C;color:#F2EFE6");

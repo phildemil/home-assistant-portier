@@ -1,0 +1,230 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Neue Tür",
+        "description": "Wähle aus, was du schon in Home Assistant hast. Nur der Klingeltaster ist Pflicht.",
+        "data": {
+          "name": "Name der Tür",
+          "trigger_entity": "Klingeltaster",
+          "camera_entity": "Kamera",
+          "opener_entity": "Türöffner",
+          "contact_entity": "Türkontakt",
+          "gong_entity": "Gong / Klingel-Relais"
+        },
+        "data_description": {
+          "trigger_entity": "Was beim Klingeln auslöst: Binärsensor, Event-Entität (z. B. Shelly-Eingang), Taste, Schalter oder Helfer.",
+          "camera_entity": "Jede Kamera, die in Home Assistant läuft.",
+          "opener_entity": "Jedes Relais (Schalter, Licht, Helfer) bekommt einen Impuls. Schloss = öffnen, Taste = drücken, Skript = ausführen, Tor = öffnen.",
+          "contact_entity": "Optional: zeigt an, ob die Tür offen ist.",
+          "gong_entity": "Optional: ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
+        }
+      },
+      "notify": {
+        "title": "Benachrichtigungen",
+        "description": "Wohin soll eine Nachricht gehen, wenn es klingelt? Kann leer bleiben und später geändert werden.",
+        "data": {
+          "notify_services": "Push-Benachrichtigungen",
+          "telegram_targets": "Telegram-Chat-IDs",
+          "notify_allow_open": "„Tür öffnen“-Knopf in der Nachricht"
+        },
+        "data_description": {
+          "notify_services": "Handys mit der Home-Assistant-App (mobile_app_…) bekommen Kamerabild und Knöpfe. Andere Dienste bekommen einen Text.",
+          "telegram_targets": "Kommagetrennt. Benötigt die Telegram-Bot-Integration. Es kommt ein Foto mit Öffnen-Knopf; nur diese Chats dürfen öffnen.",
+          "notify_allow_open": "Am Handy ist dafür die Entsperrung nötig. Jeder Knopf funktioniert nur einmal."
+        }
+      }
+    },
+    "error": {
+      "same_entity": "Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
+      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tür bearbeiten",
+        "data": {
+          "name": "Name der Tür",
+          "trigger_entity": "Klingeltaster",
+          "camera_entity": "Kamera",
+          "opener_entity": "Türöffner",
+          "contact_entity": "Türkontakt",
+          "gong_entity": "Gong / Klingel-Relais"
+        },
+        "data_description": {
+          "trigger_entity": "Was beim Klingeln auslöst: Binärsensor, Event-Entität (z. B. Shelly-Eingang), Taste, Schalter oder Helfer.",
+          "camera_entity": "Jede Kamera, die in Home Assistant läuft.",
+          "opener_entity": "Jedes Relais (Schalter, Licht, Helfer) bekommt einen Impuls. Schloss = öffnen, Taste = drücken, Skript = ausführen, Tor = öffnen.",
+          "contact_entity": "Optional: zeigt an, ob die Tür offen ist.",
+          "gong_entity": "Optional: ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
+        },
+        "sections": {
+          "notifications": {
+            "name": "Benachrichtigungen",
+            "data": {
+              "notify_services": "Push-Benachrichtigungen",
+              "telegram_targets": "Telegram-Chat-IDs",
+              "notify_allow_open": "„Tür öffnen“-Knopf in der Nachricht",
+              "notify_cooldown": "Mindestabstand zwischen Nachrichten",
+              "action_window_minutes": "Öffnen-Knopf gültig für"
+            },
+            "data_description": {
+              "notify_services": "Handys mit der Home-Assistant-App (mobile_app_…) bekommen Kamerabild und Knöpfe. Andere Dienste bekommen einen Text.",
+              "telegram_targets": "Kommagetrennt. Benötigt die Telegram-Bot-Integration. Es kommt ein Foto mit Öffnen-Knopf; nur diese Chats dürfen öffnen.",
+              "notify_allow_open": "Am Handy ist dafür die Entsperrung nötig. Jeder Knopf funktioniert nur einmal.",
+              "action_window_minutes": "Danach ist der Knopf in alten Nachrichten wirkungslos."
+            }
+          },
+          "opener_options": {
+            "name": "Türöffner & Gong",
+            "data": {
+              "pulse_mode": "Wer schaltet das Relais wieder aus?",
+              "pulse_seconds": "Impulsdauer Türöffner",
+              "gong_seconds": "Impulsdauer Gong",
+              "open_admin_only": "Nur Administratoren dürfen öffnen"
+            },
+            "data_description": {
+              "pulse_mode": "„Gerät“ nur wählen, wenn im Relais selbst ein Auto-Aus-Timer eingestellt ist (z. B. Shelly Auto-Off). Das ist die sicherste Variante."
+            }
+          },
+          "trigger_options": {
+            "name": "Klingeltaster",
+            "data": {
+              "trigger_edge": "Auslösen bei",
+              "event_types": "Nur diese Event-Typen",
+              "debounce_seconds": "Entprellung"
+            },
+            "data_description": {
+              "event_types": "Nur für Event-Entitäten, z. B. single_push. Leer = alle."
+            }
+          },
+          "live_view": {
+            "name": "Livebild & Ton",
+            "data": {
+              "live_seconds": "Livebild offen lassen",
+              "after_open_seconds": "Livebild nach dem Öffnen",
+              "sound": "Klingelton im Browser",
+              "volume": "Lautstärke"
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "same_entity": "Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
+      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür."
+    }
+  },
+  "selector": {
+    "edge": {
+      "options": {
+        "on": "Einschalten (Standard)",
+        "off": "Ausschalten (invertierter Eingang)",
+        "both": "Beides"
+      }
+    },
+    "pulse_mode": {
+      "options": {
+        "portier": "Portier schaltet nach der Impulsdauer aus",
+        "device": "Gerät (eigener Auto-Aus-Timer)"
+      }
+    },
+    "sound": {
+      "options": {
+        "dingdong": "Ding-Dong",
+        "soft": "Sanft",
+        "triple": "Dreiklang",
+        "off": "Aus"
+      }
+    },
+    "notify": {
+      "options": {}
+    },
+    "event_types": {
+      "options": {}
+    }
+  },
+  "entity": {
+    "event": {
+      "ring": {
+        "name": "Klingel",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ring": "Geklingelt"
+            }
+          }
+        }
+      }
+    },
+    "button": {
+      "open": {
+        "name": "Tür öffnen"
+      },
+      "test_ring": {
+        "name": "Testklingel"
+      }
+    },
+    "sensor": {
+      "last_ring": {
+        "name": "Zuletzt geklingelt"
+      },
+      "last_opened": {
+        "name": "Zuletzt geöffnet"
+      }
+    }
+  },
+  "services": {
+    "ring": {
+      "name": "Klingeln auslösen",
+      "description": "Löst einen Testklingel-Vorgang aus (Overlay, Gong, Push).",
+      "fields": {
+        "entry_id": {
+          "name": "Tür",
+          "description": "Leer = alle Türen"
+        }
+      }
+    },
+    "open": {
+      "name": "Tür öffnen",
+      "description": "Betätigt den Türöffner.",
+      "fields": {
+        "entry_id": {
+          "name": "Tür",
+          "description": "Leer = alle Türen"
+        }
+      }
+    },
+    "show": {
+      "name": "Livebild zeigen",
+      "description": "Öffnet das Livebild auf allen offenen Home-Assistant-Seiten.",
+      "fields": {
+        "entry_id": {
+          "name": "Tür",
+          "description": "Leer = alle Türen"
+        }
+      }
+    }
+  },
+  "issues": {
+    "loader_missing": {
+      "title": "Portier: eine Zeile in configuration.yaml fehlt",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Portier von Anfang an laden",
+            "description": "Damit das Klingel-Livebild nach jedem Neustart (z. B. nach einem Stromausfall) sofort auf allen Tablets, Browsern und in der App funktioniert, muss Home Assistant Portier ab der ersten Sekunde laden.\n\nPortier trägt dazu in deiner `configuration.yaml` ein:\n\n```yaml\nfrontend:\n  extra_module_url:\n    - {url}\n```\n\nVorher wird eine Sicherung `configuration.yaml.portier-backup` angelegt. Danach wird geprüft, ob die Datei gültig ist – sonst wird die Sicherung zurückgespielt."
+          },
+          "restart": {
+            "title": "Eingetragen – bitte neu starten",
+            "description": "Die Zeile steht jetzt in der `configuration.yaml`. Starte Home Assistant neu (Einstellungen → System → Neu starten), damit sie wirkt."
+          }
+        },
+        "abort": {
+          "cannot_edit": "Deine `configuration.yaml` ist so aufgebaut, dass Portier sie nicht sicher automatisch ändern kann (z. B. `frontend:` über `!include`). Bitte trage unter `frontend:` von Hand ein:\n\n```yaml\n  extra_module_url:\n    - {url}\n```\n\nDanach Home Assistant neu starten."
+        }
+      }
+    }
+  }
+}
