@@ -6,9 +6,10 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.3.2";
+const VERSION = "1.4.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
+const LATE_MS = 5000; // rings reaching this page later than this get no live picture
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -439,7 +440,21 @@ class PortierController {
     this.chime = new Chime();
     this.overlay = null;
     this.conn = null;
+    this.seen = new Map(); // entry_id -> last_ring this page has already handled
+    // Since when this page has been on screen without interruption (local clock, ms).
+    // Live picture and sound only for rings that happen while the page is on screen;
+    // opening the app after a ring shows nothing late – the notification covers that.
+    this.visibleSince = document.visibilityState === "visible" ? Date.now() : Infinity;
     this.connect();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") {
+        this.visibleSince = Infinity;
+        return;
+      }
+      this.visibleSince = Date.now();
+      // Back on screen: renew a possibly stale subscription right away.
+      if (this.conn?.connected) this.subscribe();
+    });
   }
 
   now() {
@@ -547,10 +562,12 @@ class PortierController {
     if (msg.type === "snapshot") {
       this.checkUpdate(msg.frontend);
       this.doors = new Map(msg.doors.map((d) => [d.entry_id, d]));
+      this.catchUp();
       this.overlay?.sync();
     } else if (msg.type === "ring") {
       const door = this.doors.get(msg.entry_id);
       if (door) Object.assign(door, { ring_id: msg.ring_id, last_ring: msg.time, view_until: msg.view_until });
+      this.seen.set(msg.entry_id, msg.time);
       this.ring(msg.entry_id, msg);
     } else if (msg.type === "dismiss") {
       // The ring's live view was closed on another device.
@@ -561,15 +578,46 @@ class PortierController {
     for (const fn of this.listeners) fn(msg);
   }
 
+  /** Was the page on screen when this ring happened? */
+  onScreenAt(iso) {
+    const ringLocal = new Date(iso).getTime() - this.offset;
+    // a little slack for clock differences
+    return document.visibilityState === "visible" && ringLocal >= this.visibleSince - 1000;
+  }
+
+  /**
+   * A ring that happened while the page was on screen but its subscription was briefly
+   * gone (reconnecting) still shows up with the next snapshot – only a few seconds late.
+   */
+  catchUp() {
+    for (const door of this.doors.values()) {
+      const ring = door.last_ring;
+      if (!ring || this.seen.get(door.entry_id) === ring) continue;
+      this.seen.set(door.entry_id, ring);
+      const opened = door.last_opened && door.last_opened >= ring;
+      if (opened || this.overlay?.views.has(door.entry_id)) continue;
+      this.ring(door.entry_id, { time: ring, late: true });
+    }
+  }
+
   async ring(entryId, msg) {
     const door = this.doors.get(entryId);
     if (!door) return;
+    // Only rings that happen while this page is on screen get picture and sound.
+    // A ring that reaches us more than a few seconds late (app was asleep) is not shown either.
+    if (!this.onScreenAt(msg.time) || this.now() - new Date(msg.time).getTime() > LATE_MS) return;
     const settings = deviceSettings();
+    // Picture first: nothing that happens with the sound may keep it from showing.
+    if (settings.overlay) this.show(entryId, { ring: true });
+    if (!settings.sound || door.sound === "off") return;
     let audible = true;
-    if (settings.sound && (await this.claimSound(entryId, String(msg.time)))) {
-      audible = this.chime.play(door.sound, door.volume);
+    try {
+      if (await this.claimSound(entryId, String(msg.time))) audible = this.chime.play(door.sound, door.volume);
+    } catch (err) {
+      console.warn("Portier: Klingelton fehlgeschlagen", err);
+      audible = false;
     }
-    if (settings.overlay) this.show(entryId, { ring: true, blocked: !audible });
+    if (!audible && settings.overlay) this.overlay?.soundBlocked(entryId);
   }
 
   /** Only one tab of this browser plays the sound for a given ring. */
@@ -613,12 +661,43 @@ class PortierController {
     return this.callWS({ type: "portier/dismiss", entry_id: entryId, ring_time: ringTime }).catch(() => {});
   }
 
-  testRing(entryId) {
-    return this.callWS({ type: "portier/ring", entry_id: entryId });
+  async testRing(entryId) {
+    const before = this.doors.get(entryId)?.last_ring;
+    await this.callWS({ type: "portier/ring", entry_id: entryId });
+    // The ring itself comes back over our subscription. If it does not arrive,
+    // the subscription is stale: renew it, the new snapshot then shows the ring.
+    setTimeout(() => {
+      if (this.doors.get(entryId)?.last_ring === before) this.subscribe();
+    }, 1500);
   }
 }
 
 /* ------------------------------------------------------------------ overlay */
+
+/* The live picture is the whole plate: name, status and key float on top of it.
+   Shared by the ring overlay and the door cards in the panel. */
+const PICTURE_CSS = `
+.plate.pic{position:relative;overflow:hidden;border:0;border-radius:18px;background:#111417}
+.pic .window{margin:0;border-radius:0;box-shadow:none}
+.pic .plate-head,.pic .controls{position:absolute;left:0;right:0;z-index:1;color:#fff;text-shadow:0 1px 3px #000c}
+.pic .plate-head{top:0;padding:10px 8px 28px 16px;background:linear-gradient(#000000b3,#0000)}
+.pic .controls{bottom:0;min-height:0;align-items:flex-end;padding:32px 16px 14px;
+  background:linear-gradient(#0000,#000000c0)}
+.pic .door-name{font-size:17px}
+.pic .since,.pic .status,.pic .key-label:not(.ok):not(.bad){color:#ffffffd9}
+.pic .status b{color:#fff}
+.pic .x,.pic .gear{color:#fff;background:#0000004d;backdrop-filter:blur(6px);width:34px;height:34px}
+.pic .x:hover,.pic .gear:hover{background:#00000080}
+.pic .lamp:not(.on){background:#ffffff80}
+.pic .flash{left:50%;top:52px;bottom:auto;transform:translate(-50%,-6px);white-space:nowrap}
+.pic .flash.show{transform:translate(-50%,0)}
+.pic .timeline{z-index:2}
+.pic .key{width:64px;height:64px;box-shadow:0 0 0 3px #0000004d,0 6px 14px #0007,inset 0 -3px 6px #0004}
+.pic .key .ring{inset:-8px;width:80px;height:80px}
+.pic .key svg.glyph{width:26px;height:26px}
+.pic .key-wrap{gap:4px}
+.pic .key-label{font-size:11px}
+`;
 
 class PortierOverlay extends HTMLElement {
   constructor() {
@@ -633,24 +712,23 @@ class PortierOverlay extends HTMLElement {
       #stack{display:grid;gap:12px;grid-template-columns:repeat(var(--cols,1),minmax(0,1fr));align-items:stretch;
         max-height:calc(100dvh - 32px + 48px);overflow:auto;overscroll-behavior:contain;scrollbar-width:none;
         padding:24px;margin:-24px}
-      .plate{pointer-events:auto;box-shadow:inset 0 1px 0 #ffffff14,0 12px 28px #0009;display:flex;flex-direction:column;
-        animation:rise .32s cubic-bezier(.2,.8,.2,1)}
+      ${PICTURE_CSS}
+      .plate{pointer-events:auto;box-shadow:0 12px 28px #0009;animation:rise .32s cubic-bezier(.2,.8,.2,1)}
       .plate.leaving{animation:sink .22s ease-in forwards}
-      .plate .controls{margin-top:auto}
-      .plate.fresh{box-shadow:inset 0 1px 0 #ffffff14,0 0 0 2px var(--pt-brass),0 12px 28px #0009}
+      .plate.fresh{box-shadow:0 0 0 2px var(--pt-brass),0 12px 28px #0009}
       @keyframes rise{from{opacity:0;transform:translateY(24px) scale(.96)}}
       @keyframes sink{to{opacity:0;transform:scale(.94)}}
       /* smaller plates when several doors are shown */
-      :host([data-compact]) .plate{border-radius:18px}
-      :host([data-compact]) .plate-head{padding:10px 12px 8px 14px}
-      :host([data-compact]) .door-name{font-size:16px}
-      :host([data-compact]) .window{margin:0 8px;border-radius:12px}
-      :host([data-compact]) .controls{padding:10px 14px 12px;gap:10px;min-height:96px}
+      :host([data-compact]) .plate{border-radius:14px}
+      :host([data-compact]) .plate-head{padding:8px 6px 22px 12px}
+      :host([data-compact]) .door-name{font-size:15px}
+      :host([data-compact]) .controls{padding:24px 12px 10px;gap:10px}
       :host([data-compact]) .status{font-size:12px}
-      :host([data-compact]) .key{width:58px;height:58px}
-      :host([data-compact]) .key .ring{inset:-8px;width:74px;height:74px}
-      :host([data-compact]) .key svg.glyph{width:24px;height:24px}
-      :host([data-compact]) .key-label{font-size:11px}
+      :host([data-compact]) .key{width:50px;height:50px}
+      :host([data-compact]) .key .ring{inset:-7px;width:64px;height:64px}
+      :host([data-compact]) .key svg.glyph{width:22px;height:22px}
+      :host([data-compact]) .key-label{display:none}
+      :host([data-compact]) .flash{top:44px;font-size:13px}
       @media (max-width:600px){:host{left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));width:auto}}
       @media (prefers-reduced-motion:reduce){:host{transition:none}.plate,.plate.leaving{animation:none}}
     </style><div id="stack" role="region" aria-live="polite" aria-label="Türklingel"></div>`;
@@ -671,7 +749,7 @@ class PortierOverlay extends HTMLElement {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const gap = 12;
-    const chrome = 150; // header + controls of a plate, roughly
+    const chrome = 0; // name and controls sit inside the picture
     const landscape = vw >= 760 && vw >= vh * 1.05;
     let cols = 1;
     let rows = n;
@@ -740,22 +818,22 @@ class PortierOverlay extends HTMLElement {
 
   build(door) {
     const el = document.createElement("section");
-    el.className = "plate";
+    el.className = "plate pic";
     el.setAttribute("aria-label", door.name);
     el.innerHTML = `
-      <div class="plate-head">
-        <span class="lamp on"></span>
-        <h2 class="door-name">${esc(door.name)}</h2>
-        <span class="since"></span>
-        <button class="x" aria-label="Schließen">×</button>
-      </div>
       <div class="window">
+        <div class="plate-head">
+          <span class="lamp on"></span>
+          <h2 class="door-name">${esc(door.name)}</h2>
+          <span class="since"></span>
+          <button class="x" aria-label="Schließen">×</button>
+        </div>
         <div class="flash"></div>
+        <div class="controls">
+          <div class="status"></div>
+          ${keyMarkup(door.can_open)}
+        </div>
         <div class="timeline"><i></i></div>
-      </div>
-      <div class="controls">
-        <div class="status"></div>
-        ${keyMarkup(door.can_open)}
       </div>`;
     const camera = new CameraView(door.camera, rootHass);
     el.querySelector(".window").prepend(camera.el);
@@ -769,6 +847,11 @@ class PortierOverlay extends HTMLElement {
     v.tick = setInterval(() => this.render(v), 1000);
     this.stack.prepend(el);
     return v;
+  }
+
+  soundBlocked(entryId) {
+    const v = this.views.get(entryId);
+    if (v) this.flash(v, "Ton blockiert – einmal tippen");
   }
 
   flash(v, text) {
@@ -973,6 +1056,21 @@ class PortierEditor extends HTMLElement {
           ${(v.notify_services || []).includes(svc) ? "checked" : ""}>${esc(notifyLabel(svc, cfg.notify_labels))}</label>`,
       )
       .join("");
+    // Telegram: the chats set up in the Telegram bot integration, plus any ID already saved.
+    const tgSaved = String(v.telegram_targets || "")
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter((s) => /^-?\d+$/.test(s));
+    const tgChats = [...(cfg.telegram_chats || []).map((c) => ({ id: String(c.id), name: c.name }))];
+    for (const id of tgSaved) if (!tgChats.some((c) => c.id === id)) tgChats.push({ id, name: `Chat ${id}` });
+    const telegramChecks = (cfg.telegram_chats || []).length
+      ? tgChats
+          .map(
+            (c) => `<label class="chk"><input type="checkbox" name="telegram_chat" value="${esc(c.id)}"
+          ${tgSaved.includes(c.id) ? "checked" : ""}>${esc(c.name)}</label>`,
+          )
+          .join("")
+      : "";
     return `<dialog class="editor" aria-label="${this.entryId ? "Tür bearbeiten" : "Neue Tür"}">
     <form method="dialog" novalidate><div class="plate">
       <div class="plate-head">
@@ -995,9 +1093,13 @@ class PortierEditor extends HTMLElement {
           <div class="f"><span>Push-Nachricht an</span>
             <div class="checks">${notifyChecks || `<small>Keine Benachrichtigungsdienste gefunden. Installiere die Home-Assistant-App auf dem Handy.</small>`}</div>
             <small>Handys mit der Home-Assistant-App bekommen Kamerabild und Öffnen-Knopf.</small></div>
-          <label class="f" data-f="telegram_targets"><span>Telegram-Chat-IDs</span>
+          ${telegramChecks
+            ? `<div class="f" data-f="telegram_targets"><span>Telegram an</span>
+            <div class="checks">${telegramChecks}</div>
+            <small>Die Chats aus der Telegram-Bot-Integration. Nur ausgewählte Chats dürfen über den Knopf öffnen.</small></div>`
+            : `<label class="f" data-f="telegram_targets"><span>Telegram-Chat-IDs</span>
             <input type="text" name="telegram_targets" value="${esc(v.telegram_targets || "")}" placeholder="z. B. 123456789, -100987654" inputmode="numeric">
-            <small>${cfg.telegram ? "Kommagetrennt. Nur diese Chats dürfen über den Knopf öffnen." : "Die Telegram-Bot-Integration ist in Home Assistant noch nicht eingerichtet."}</small></label>
+            <small>${cfg.telegram ? "Kommagetrennt. Nur diese Chats dürfen über den Knopf öffnen." : "Die Telegram-Bot-Integration ist in Home Assistant noch nicht eingerichtet."}</small></label>`}
           ${this.check("notify_allow_open", "„Tür öffnen“-Knopf in der Nachricht", v.notify_allow_open, "Jeder Knopf öffnet nur einmal. Am Handy ist die Entsperrung nötig.")}
           <div class="two">
             ${this.num("action_window_minutes", "Knopf gültig für", v.action_window_minutes, "min", 1, 60)}
@@ -1115,7 +1217,9 @@ class PortierEditor extends HTMLElement {
       contact_entity: val("contact_entity") || null,
       gong_entity: val("gong_entity") || null,
       notify_services: [...f.querySelectorAll("[name=notify_services]:checked")].map((c) => c.value),
-      telegram_targets: val("telegram_targets"),
+      telegram_targets: f.querySelector("[name=telegram_chat]")
+        ? [...f.querySelectorAll("[name=telegram_chat]:checked")].map((c) => c.value).join(", ")
+        : val("telegram_targets"),
       notify_allow_open: f.elements.notify_allow_open.checked,
       action_window_minutes: num("action_window_minutes"),
       notify_cooldown: num("notify_cooldown"),
@@ -1210,8 +1314,17 @@ class PortierPanel extends HTMLElement {
       ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px;font-size:14px;font-variant-numeric:tabular-nums}
       ol li{display:flex;justify-content:space-between;color:var(--pt-ink)}
       ol li span{color:var(--pt-muted)}
-      .live-btn{position:absolute;right:10px;top:10px;z-index:2;border:0;border-radius:999px;padding:6px 12px;
-        background:#24282ccc;backdrop-filter:blur(6px);color:var(--pt-ink);font-size:13px}
+      ${PICTURE_CSS}
+      .live-btn{flex:none;border:0;border-radius:999px;padding:6px 12px;white-space:nowrap;
+        background:#0000004d;backdrop-filter:blur(6px);color:#fff;font-size:13px}
+      .live-btn:hover{background:#00000080}
+      .pic .status{display:grid;gap:8px}
+      .pic .meta{padding:0;gap:2px 14px;font-size:12px;color:#ffffffd9}
+      .pic .meta b{color:#fff}
+      .pic .quiet{color:#fff;border-color:#ffffff59;background:#0000004d;backdrop-filter:blur(6px);
+        padding:5px 12px;font-size:13px;text-shadow:none}
+      .pic .quiet:hover{background:#00000080}
+      .pic details{border-top:0;margin:0 16px}
       .device{background:var(--card-background-color,#24282c);color:var(--primary-text-color);
         border:1px solid var(--divider-color,#3c4248);border-radius:16px;padding:16px 18px;display:grid;gap:12px}
       .device h2{font-size:16px;margin:0;font-weight:600}
@@ -1283,6 +1396,14 @@ class PortierPanel extends HTMLElement {
 
   connectedCallback() {
     ctrl.listeners.add(this.onMsg);
+    // Opened from a push notification (/portier?show=<entry_id>): show that door's live picture.
+    const params = new URLSearchParams(location.search);
+    if (params.has("show")) {
+      this.pendingShow = params.get("show");
+      params.delete("show");
+      const rest = params.toString();
+      history.replaceState(history.state, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
+    }
     this.render();
     this.ticker = setInterval(() => this.refresh(), 10000);
   }
@@ -1348,36 +1469,55 @@ class PortierPanel extends HTMLElement {
       this.fill(card, door);
     });
     this.renderSoundState();
+    if (this.pendingShow && ctrl.doors.has(this.pendingShow)) {
+      const id = this.pendingShow;
+      this.pendingShow = null;
+      if (!ctrl.overlay?.views.has(id)) ctrl.show(id, { manual: true });
+    }
   }
 
   buildCard(door) {
     const el = document.createElement("article");
-    el.className = "plate";
+    el.className = "plate pic";
     el.innerHTML = `
-      <div class="plate-head">
-        <span class="lamp"></span>
-        <h2 class="door-name"></h2>
-        <button class="gear" data-act="edit" title="Tür bearbeiten" aria-label="Tür bearbeiten"><svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/></svg></button>
-      </div>
       <div class="window">
         <img class="still" alt="">
+        <div class="plate-head">
+        <span class="lamp"></span>
+        <h2 class="door-name"></h2>
         <button class="live-btn">Live ansehen</button>
-      </div>
-      <div class="meta"></div>
-      <div class="controls">
-        <div class="status actions">
-          <button class="quiet" data-act="test">Testklingel</button>
+        <button class="gear" data-act="edit" title="Tür bearbeiten" aria-label="Tür bearbeiten"><svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/></svg></button>
         </div>
-        ${keyMarkup(door.can_open)}
+        <div class="controls">
+          <div class="status">
+            <div class="meta"></div>
+            <div class="actions"><button class="quiet" data-act="test">Testklingel</button></div>
+          </div>
+          ${keyMarkup(door.can_open)}
+        </div>
       </div>
       <details><summary>Klingelverlauf</summary><ol></ol></details>`;
     el.querySelector(".live-btn").addEventListener("click", () => this.toggleLive(door.entry_id, el));
     const gear = el.querySelector("[data-act=edit]");
     gear.hidden = !this.isAdmin;
     gear.addEventListener("click", () => this.edit(door.entry_id));
-    el.querySelector("[data-act=test]").addEventListener("click", (e) => {
-      e.target.disabled = true;
-      ctrl.testRing(door.entry_id).finally(() => setTimeout(() => (e.target.disabled = false), 2000));
+    const test = el.querySelector("[data-act=test]");
+    test.addEventListener("click", () => {
+      if (test.disabled) return;
+      test.disabled = true;
+      test.textContent = "Klingelt …";
+      ctrl
+        .testRing(door.entry_id)
+        .catch((err) => {
+          console.warn("Portier: Testklingel fehlgeschlagen", err);
+          test.textContent = "Fehlgeschlagen";
+        })
+        .finally(() =>
+          setTimeout(() => {
+            test.disabled = false;
+            test.textContent = "Testklingel";
+          }, 2000),
+        );
     });
     if (door.can_open) wireKey(el.querySelector(".key"), el.querySelector(".key-label"), () => ctrl.open(door.entry_id));
     return el;
@@ -1394,7 +1534,8 @@ class PortierPanel extends HTMLElement {
     }
     const door = ctrl.doors.get(entryId);
     const view = new CameraView(door.camera, () => this._hass || rootHass());
-    el.querySelector(".window").insertBefore(view.el, btn);
+    const win = el.querySelector(".window");
+    win.insertBefore(view.el, win.querySelector(".plate-head"));
     view.start();
     this.live.set(entryId, view);
     btn.textContent = "Live beenden";

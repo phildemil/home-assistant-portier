@@ -9,16 +9,28 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   input_boolean), Kamera (jede HA-Kamera), Türöffner (switch/light/input_boolean als Impuls,
   lock → open/unlock, button → press, script, cover), optional Türkontakt und Gong.
 - Klingeln → Overlay mit Livebild auf jeder offenen HA-Seite, Browser-Ton, Push an
-  `notify.mobile_app_*` (Bild + „Tür öffnen“ + „Livebild“), Telegram (`send_photo` mit
-  Inline-Knopf, nur eingetragene Chats dürfen öffnen). Öffnen-Knöpfe sind Einmal-Token mit
+  `notify.mobile_app_*` (Kamerabild + Knopf „Tür öffnen“; Tippen auf die Nachricht öffnet
+  `/portier?show=<entry_id>` = Livebild-Popup dieser Tür), Telegram (`send_photo` mit
+  Inline-Knopf, nur ausgewählte Chats dürfen öffnen). Öffnen-Knöpfe sind Einmal-Token mit
   Ablaufzeit.
+- Telegram-Empfänger werden im Editor per Haken aus den `allowed_chat_ids`-Subentries der
+  Telegram-Bot-Integration gewählt (`portier/config` liefert `telegram_chats`); gespeichert
+  bleibt `telegram_targets` als kommagetrennte IDs.
 - Seitenleiste „Türklingel“: Türen anlegen/bearbeiten/entfernen (nur Admin), Standbild,
   Live, Testklingel, Verlauf, Einstellungen pro Gerät (Overlay/Ton an/aus).
+- Popup und Türkarten: das Kamerabild ist die ganze Karte, Name, Status, Knöpfe und Türöffner
+  liegen als Overlay im Bild (`PICTURE_CSS`, Klasse `.plate.pic`).
 
 ## Wichtige Entscheidungen des Benutzers (nicht wieder ändern)
 - Allgemein bauen: jedes Relais, jede Kamera, keine Shelly-Sonderlogik.
 - Türöffner reagiert auf **einen Tipp**, kein Gedrückthalten.
 - **Kein Nachholen** verpasster Klingelereignisse. Es muss einfach im richtigen Moment laufen.
+  Livebild und Ton nur, wenn die Seite/App **beim Klingeln** sichtbar war und die Meldung
+  höchstens 5 s alt ist (`LATE_MS`). Einzige Ausnahme: war die Seite sichtbar, aber das Abo
+  gerade kurz weg (Neuverbindung), holt der nächste Snapshot es nach – innerhalb dieser 5 s.
+  App erst nach dem Klingeln geöffnet → nichts, nur die Push-Nachricht.
+- Kein Symbol ins Push-Bild malen: das Bild ist das reine Kamerabild; Android erlaubt
+  anklickbare Knöpfe nur unter dem Bild.
 - Es darf **nie F5 nötig** sein – auch nicht nach HA-Neustart, Stromausfall oder Update.
 - Mehrere Livebilder: im Querformat nebeneinander, kleiner je mehr; hochkant untereinander.
 - Schließen eines **Klingel**-Overlays (×) schließt es auf allen Geräten; von Hand geöffnete
@@ -55,6 +67,6 @@ ab, bis Portier läuft, und importiert dann das Modul. Selbes Vorgehen wie card-
 - Echter Test: HA in einem venv mit `hass -c <config>`, Playwright für Overlay/Editor.
   Kritische Szenarien: Seite **während** des HA-Starts geladen, HA-Neustart bei offener Seite,
   mehrfaches Klingeln, zwei Geräte gleichzeitig (synchrones Schließen).
-- Benutzer-HA: 2026.11.x, erreichbar unter `http://homeassistant.local`, Konfig über Samba
-  `\\homeassistant.local\config`. Bei jeder Änderung `version` in `manifest.json` **und**
+- Benutzer-HA: 2026.11.x, erreichbar unter `http://192.168.0.242` (Port 80), Konfig über Samba
+  `\\homeassistant\config` (= Laufwerk Z:). Bei jeder Änderung `version` in `manifest.json` **und**
   `VERSION` in `frontend/portier.js` erhöhen.

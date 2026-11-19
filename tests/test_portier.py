@@ -161,6 +161,9 @@ async def test_mobile_push_and_action(hass: HomeAssistant) -> None:
     assert len(calls) == 1
     data = calls[0].data["data"]
     assert data["image"] == "/api/camera_proxy/camera.tuer"
+    # Tapping the notification opens this door's live picture; no extra "Livebild" button.
+    assert data["clickAction"] == data["url"] == f"/portier?show={entry.entry_id}"
+    assert len(data["actions"]) == 1
     action = data["actions"][0]["action"]
     assert action.startswith("PORTIER_OPEN_")
     assert data["actions"][0]["authenticationRequired"] is True

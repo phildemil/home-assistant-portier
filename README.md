@@ -40,9 +40,9 @@ Die Einstellungen unter *Geräte & Dienste → Portier* bleiben gleichwertig, be
 
 ## Benachrichtigungen
 
-**Handy (Home-Assistant-App):** Unter „Push-Benachrichtigungen“ die `mobile_app_…`-Dienste wählen. Die Nachricht zeigt das Kamerabild und zwei Knöpfe: **Tür öffnen** (das Handy verlangt dafür die Entsperrung) und **Livebild**.
+**Handy (Home-Assistant-App):** Unter „Push-Benachrichtigungen“ die `mobile_app_…`-Dienste wählen. Die Nachricht zeigt das Kamerabild und den Knopf **Tür öffnen** (das Handy verlangt dafür die Entsperrung). Wer auf die Nachricht tippt, landet direkt im Livebild dieser Tür, mit dem Türöffner im Bild.
 
-**Telegram:** Die Telegram-Bot-Integration muss eingerichtet sein. Die Chat-IDs kommagetrennt eintragen. Es kommt ein Foto mit **Tür öffnen**-Knopf. Nur die eingetragenen Chats dürfen damit öffnen.
+**Telegram:** Die Telegram-Bot-Integration muss eingerichtet sein. Die Empfänger per Haken auswählen – angeboten werden die Chats, die in der Telegram-Bot-Integration erlaubt sind (ohne solche Chats: Chat-IDs kommagetrennt eintragen). Es kommt ein Foto mit **Tür öffnen**-Knopf. Nur die eingetragenen Chats dürfen damit öffnen.
 
 **Andere Dienste** (E-Mail, Alexa, …) bekommen eine Textnachricht.
 
@@ -86,7 +86,7 @@ Standardmäßig darf jeder angemeldete Benutzer öffnen, der die Kamera sehen da
 
 ## Grenzen
 
-- Das schwebende Livebild erscheint in offenen Home-Assistant-Seiten. Für geschlossene Apps und gesperrte Handys sind die Push-Nachrichten da.
+- Das schwebende Livebild erscheint nur in Home-Assistant-Seiten, die beim Klingeln offen und sichtbar sind. Wer die App erst danach öffnet, bekommt kein verspätetes Livebild – dafür sind die Push-Nachrichten da.
 - Das Livebild kommt per WebRTC über Home Assistant (z. B. go2rtc, das in HA eingebaut ist). Geht das nicht, nimmt Portier HLS oder MJPEG. Bis das Video läuft, ist das letzte Standbild zu sehen.
 - Gegensprechen (2-Wege-Audio) ist noch nicht eingebaut. Das ist mit go2rtc und WebRTC möglich und als nächster Schritt vorgesehen.
 

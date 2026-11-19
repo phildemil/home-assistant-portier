@@ -164,6 +164,25 @@ def ws_dismiss(
 
 
 # ---------------------------------------------------------------- door editing
+def _telegram_chats(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """The allowed chats set up in the Telegram bot integration, by name."""
+    chats: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for entry in hass.config_entries.async_entries("telegram_bot"):
+        for sub in getattr(entry, "subentries", {}).values():
+            if sub.subentry_type != "allowed_chat_ids":
+                continue
+            try:
+                chat_id = int(sub.data.get("chat_id"))
+            except (TypeError, ValueError):
+                continue
+            if chat_id in seen:
+                continue
+            seen.add(chat_id)
+            chats.append({"id": chat_id, "name": sub.title or str(chat_id)})
+    return chats
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/config"})
 @websocket_api.require_admin
 @callback
@@ -189,6 +208,7 @@ def ws_config(
             "notify_labels": labels,
             "notify_services": notify,
             "telegram": hass.services.has_service("telegram_bot", "send_message"),
+            "telegram_chats": _telegram_chats(hass),
             "doors": {
                 e.entry_id: {**DEFAULTS, **e.options, "name": e.options.get("name") or e.title}
                 for e in hass.config_entries.async_entries(DOMAIN)

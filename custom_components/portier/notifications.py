@@ -107,6 +107,8 @@ class Notifier:
         self, service: str, title: str, message: str, token: str | None
     ) -> None:
         entry_id = self.door.entry.entry_id
+        # Tapping the notification opens the live picture with the opener inside it.
+        live_url = f"/{PANEL_URL}?show={entry_id}"
         data: dict[str, Any] = {
             "tag": f"portier_{entry_id}",
             "group": "portier",
@@ -115,9 +117,9 @@ class Notifier:
             "importance": "high",
             "priority": "high",
             "ttl": 0,
-            "clickAction": f"/{PANEL_URL}",
+            "clickAction": live_url,
             # iOS
-            "url": f"/{PANEL_URL}",
+            "url": live_url,
             "push": {"interruption-level": "time-sensitive"},
         }
         if camera := self.door.camera:
@@ -133,8 +135,8 @@ class Notifier:
                     "destructive": True,
                 }
             )
-        actions.append({"action": "URI", "title": "📹 Livebild", "uri": f"/{PANEL_URL}"})
-        data["actions"] = actions
+        if actions:
+            data["actions"] = actions
         await self._call("notify", service, {"title": title, "message": message, "data": data})
 
     async def _send_telegram(self, targets: list[int], caption: str, token: str | None) -> None:
