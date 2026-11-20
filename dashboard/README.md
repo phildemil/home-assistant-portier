@@ -21,6 +21,7 @@ Zusatzkarten, kein HACS, nichts, was bei einem Update kaputtgehen kann.
 - **Draußen**: beide Kamerabilder mit **Knöpfen im Bild** – Haustür: *Tür öffnen*, *Klingel-Verlauf*;
   Garten: Lichter. **Klingelt es**, wird die Haustür groß und **live**, 3 Minuten lang.
 - **Sonne & Akku**: Akku als Anzeige, Solarleistung jetzt, Ertrag heute
+- **Dimmer** für Deckenlicht Wohnzimmer, Esstisch und alle Lichter (Schieber direkt in der Kachel)
 - **Räume**: eine Karte pro Raum mit Temperatur und Knöpfen für Licht, Rollo und Dachfenster.
   Oben rechts „💡 3“ (Tipp: alle Lichter aus) und „Dachfenster 2“ (Tipp: alle schließen).
 

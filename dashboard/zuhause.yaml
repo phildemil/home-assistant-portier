@@ -225,6 +225,33 @@ views:
                   - condition: numeric_state
                     entity: sensor.dachfenster_offen
                     above: 0
+          - type: tile
+            entity: light.wohnzimmer_decke
+            name: Deckenlicht
+            icon: mdi:ceiling-light
+            features_position: inline
+            features:
+              - type: light-brightness
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: light.esstisch
+            name: Esstisch
+            icon: mdi:table-chair
+            features_position: inline
+            features:
+              - type: light-brightness
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: light.alle_lichter
+            name: Alle Lichter
+            icon: mdi:lightbulb-group
+            features_position: inline
+            features:
+              - type: light-brightness
+            grid_options:
+              columns: 6
           - &raum
             type: area
             area: wohnzimmer
