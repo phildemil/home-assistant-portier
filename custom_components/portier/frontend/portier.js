@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.6.5";
+const VERSION = "1.6.6";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -1104,8 +1104,13 @@ class PortierOverlay extends HTMLElement {
       if (opened && door.view_until) {
         const until = new Date(door.view_until).getTime();
         if (Math.abs(until - v.until) > 1500) {
+          // Keep the line where it is and let it run out exactly when the picture closes,
+          // instead of jumping back to full.
+          const now = this.controller.now();
+          const shown = Math.max(0, Math.min(1, (v.until - now) / v.total));
+          const left = Math.max(1000, until - now);
           v.until = until;
-          v.total = Math.max(1000, until - this.controller.now());
+          v.total = shown > 0.02 ? left / shown : left;
         }
       }
       v.opened = !!opened;
