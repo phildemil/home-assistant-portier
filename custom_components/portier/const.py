@@ -134,7 +134,7 @@ SIGNAL_UPDATE: Final = f"{DOMAIN}_update_signal"
 SIGNAL_DISMISS: Final = f"{DOMAIN}_dismiss_signal"
 EVENT_DISMISSED: Final = f"{DOMAIN}_dismissed"
 
-HISTORY_SIZE: Final = 20
+HISTORY_SIZE: Final = 50
 # Door openings are kept across restarts (who opened, and how).
 OPEN_HISTORY_SIZE: Final = 50
 PANEL_URL: Final = "portier"

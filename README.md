@@ -79,7 +79,7 @@ Bei Schlössern nutzt Portier „öffnen“ (Falle), wenn das Schloss das kann, 
 - **Schließen:** Wer ein Klingel-Livebild mit × schließt, schließt es auf allen Geräten. Eine von Hand geöffnete Kamera schließt nur auf dem eigenen Gerät. Klingelt es inzwischen erneut, bleibt das neue Bild offen.
 - **Mehrere Türen gleichzeitig:** Im Querformat stehen die Livebilder nebeneinander und werden kleiner, je mehr es sind. Hochkant stehen sie untereinander. Das zuletzt klingelnde ist vorne und golden umrandet.
 - **Ton:** Wird beim ersten Antippen der Seite automatisch freigeschaltet (Browser-Regel). Ist er blockiert, steht das im Bild.
-- **Verlauf:** Unter jeder Tür lassen sich zwei Listen aufklappen. Der **Klingelverlauf** zeigt, welcher Taster geklingelt hat (oder wer die Testklingel gedrückt hat), der **Türöffner-Verlauf**, wer wann geöffnet hat und wie – Home Assistant, Handy-Benachrichtigung, Telegram, Taste oder Automation. Der Türöffner-Verlauf bleibt auch nach einem Neustart erhalten (die letzten 50).
+- **Verlauf:** Unter jeder Tür lassen sich zwei Listen aufklappen. Der **Klingelverlauf** zeigt, welcher Taster geklingelt hat (oder wer die Testklingel gedrückt hat), der **Türöffner-Verlauf**, wer wann geöffnet hat und wie – Home Assistant, Handy-Benachrichtigung, Telegram, Taste oder Automation. Beide Verläufe bleiben auch nach einem Neustart erhalten (je die letzten 50).
 - **Seitenleiste „Türklingel“:** Standbild, Live ansehen, Testklingel, Verlauf und die Einstellungen für dieses Gerät (Livebild und Ton an/aus pro Browser, z. B. das Tablet im Schlafzimmer stumm).
 
 ## Für eigene Automationen

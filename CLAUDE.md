@@ -30,7 +30,7 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - Öffnen per NFC (`nfc.py`): Event `tag_scanned` der HA-App; Optionen `nfc_tags` (Tag-Entitäten),
   `nfc_devices` (erlaubte mobile_app-Geräte), Zeitfenster, Hinweis an Empfänger. Handy braucht
   Verbindung zu HA (Benutzer: WLAN bis zur Tür, kein Fernzugriff).
-- Verläufe: Klingelverlauf (Taster/Person, flüchtig) und Türöffner-Verlauf (wer, Weg; im Store, 50).
+- Verläufe: Klingelverlauf (Taster/Person) und Türöffner-Verlauf (wer, Weg), beide im Store (je 50).
 
 ## Wichtige Entscheidungen des Benutzers (nicht wieder ändern)
 - Allgemein bauen: jedes Relais, jede Kamera, keine Shelly-Sonderlogik.

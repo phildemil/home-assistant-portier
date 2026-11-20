@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.4";
+const VERSION = "1.9.5";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -144,10 +144,11 @@ function when(iso) {
 /** Which button rang (its name, entity id as tooltip) or who pressed "Testklingel". */
 const ringWho = (r) =>
   r.source === "test"
-    ? `<b>${esc(r.who || "Automation")}</b> · Testklingel`
-    : r.who || r.entity
-      ? `<b>${esc(r.who || r.entity)}</b>${r.entity && r.who ? ` · ${esc(r.entity)}` : ""}`
-      : "Klingeltaster";
+    ? [r.who || "Automation", "Testklingel"]
+    : [r.who || r.entity || "Klingeltaster", r.who && r.entity ? r.entity : "Klingeltaster"];
+/** One history row as three aligned columns: time · name · way. */
+const histRow = (time, name, detail) =>
+  `<li><time>${esc(time)}</time><b>${esc(name)}</b><span title="${esc(detail)}">${esc(detail)}</span></li>`;
 const openWho = (r) => r.who || (["button", "service"].includes(r.via) ? "Automation" : "Unbekannt");
 
 /** A "play sound" button that says what it is doing, like the test ring button. */
@@ -1652,10 +1653,13 @@ class PortierPanel extends HTMLElement {
       .actions{display:flex;gap:8px;flex-wrap:wrap}
       details{border-top:1px solid var(--pt-edge);margin:0 18px;padding:10px 0 14px}
       summary{cursor:pointer;font-size:14px;color:var(--pt-muted)}
-      ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px;font-size:14px;font-variant-numeric:tabular-nums}
-      ol li{display:flex;justify-content:space-between;color:var(--pt-ink)}
-      ol li span{color:var(--pt-muted);text-align:right}
-      ol li span b{color:var(--pt-ink);font-weight:600}
+      /* time · name · way as aligned columns across all rows */
+      ol{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:minmax(10em,max-content) minmax(7em,max-content) minmax(0,1fr);
+        gap:4px 18px;font-size:14px;font-variant-numeric:tabular-nums}
+      ol li{display:contents;color:var(--pt-ink)}
+      ol li b{font-weight:600}
+      ol li span{color:var(--pt-muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      ol li.empty span{grid-column:1/-1;white-space:normal}
       details[hidden]{display:none}
       ${PICTURE_CSS}
       .live-btn{flex:none;border:0;border-radius:999px;padding:6px 12px;white-space:nowrap;
@@ -1957,10 +1961,10 @@ class PortierPanel extends HTMLElement {
       ? door.history
           .map(
             (r) =>
-              `<li>${esc(when(r.time))}<span>${ringWho(r)}</span></li>`,
+              histRow(when(r.time), ...ringWho(r)),
           )
           .join("")
-      : `<li><span>Seit dem letzten Neustart hat niemand geklingelt.</span></li>`;
+      : `<li class="empty"><span>Noch hat niemand geklingelt.</span></li>`;
     card.querySelector(".rings summary").textContent = `Klingelverlauf (${door.history.length})`;
     // Who opened the door, and which way.
     const opens = door.opens || [];
@@ -1970,10 +1974,10 @@ class PortierPanel extends HTMLElement {
       ? opens
           .map(
             (r) =>
-              `<li>${esc(when(r.time))}<span><b>${esc(openWho(r))}</b> · ${esc(OPEN_VIA[r.via] || r.via)}</span></li>`,
+              histRow(when(r.time), openWho(r), OPEN_VIA[r.via] || r.via),
           )
           .join("")
-      : `<li><span>Noch nie über Portier geöffnet.</span></li>`;
+      : `<li class="empty"><span>Noch nie über Portier geöffnet.</span></li>`;
     openBox.querySelector("summary").textContent = `Türöffner-Verlauf (${opens.length})`;
     if (!this.live.has(door.entry_id)) this.refreshStill(card, door);
     const live = card.querySelector(".live-btn");

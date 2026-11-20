@@ -727,3 +727,16 @@ async def test_nfc_needs_phone_and_opener(hass: HomeAssistant) -> None:
     )
     assert not errors
     assert options["nfc_from"] == "07:00:00"
+
+
+async def test_ring_history_survives_restart(hass: HomeAssistant) -> None:
+    entry = await _setup(hass)
+    await _press(hass)
+    await hass.async_block_till_done()
+    before = entry.runtime_data.snapshot(True)
+    assert len(before["history"]) == 1
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    after = entry.runtime_data.snapshot(True)
+    assert after["history"] == before["history"]
+    assert after["last_ring"] == before["last_ring"]

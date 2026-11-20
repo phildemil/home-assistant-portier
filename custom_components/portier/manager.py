@@ -163,6 +163,21 @@ class PortierDoor:
                 continue
         if self.state.opens and self.state.opens[0].time:
             self.state.last_opened = self.state.opens[0].time
+        for item in stored.get("rings", []):
+            try:
+                self.state.history.append(
+                    RingRecord(
+                        dt_util.parse_datetime(item["time"]),
+                        item["source"],
+                        item.get("who"),
+                        item.get("entity"),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        if self.state.history and self.state.history[0].time:
+            # Only for "last rung" displays; frontends never replay an old ring (LATE_MS).
+            self.state.last_ring = self.state.history[0].time
         for entity_id in stored.get("pending_off", []):
             _LOGGER.warning("Portier: switching %s off after restart", entity_id)
             self._pending_off.add(entity_id)
@@ -266,6 +281,7 @@ class PortierDoor:
         if gong := self.opt(CONF_GONG):
             self.hass.async_create_task(self._run_gong(gong))
         self.hass.async_create_task(self.notifier.async_ring(st.ring_id))
+        self.hass.async_create_task(self._save())  # keep the ring history across restarts
 
     def async_dismiss(self, ring_time: str, context: Context | None = None) -> bool:
         """Someone closed the live view of a ring: close it on every device.
@@ -448,6 +464,10 @@ class PortierDoor:
                 "opens": [
                     {"time": r.time.isoformat(), "via": r.via, "who": r.who}
                     for r in self.state.opens
+                ],
+                "rings": [
+                    {"time": r.time.isoformat(), "source": r.source, "who": r.who, "entity": r.entity}
+                    for r in self.state.history
                 ],
             }
         )
