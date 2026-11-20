@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.7";
+const VERSION = "1.9.8";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1218,7 +1218,19 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .f input:focus-visible,.f select:focus-visible{outline:2px solid var(--pt-brass);outline-offset:1px;border-color:transparent}
 .f.bad input,.f.bad select{border-color:var(--pt-alert)}
 .ent{display:flex;gap:6px}
-.ent input{flex:1;min-width:0}
+.ent .combo{flex:1;min-width:0;position:relative}
+.ent .combo input{padding-right:40px}
+.ent .drop{position:absolute;right:2px;top:2px;bottom:2px;width:38px;border:0;background:none;color:var(--pt-muted);font-size:16px;cursor:pointer;border-radius:8px}
+.ent .drop:hover{color:var(--pt-ink)}
+.ent .dd{position:absolute;z-index:5;left:0;right:0;top:calc(100% + 4px);margin:0;padding:4px;list-style:none;max-height:260px;overflow:auto;
+  background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px;box-shadow:0 10px 30px #000a}
+.ent .dd[hidden],.ent .dd li[hidden]{display:none}
+.ent .dd li{display:grid;padding:7px 10px;border-radius:7px;cursor:pointer;gap:1px}
+.ent .dd li b{font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ent .dd li small{font-size:12px;color:var(--pt-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ent .dd li.hi{background:#ffffff12}
+.ent .dd li.cur b{color:var(--pt-brass-hi)}
+.ent .dd li.none{color:var(--pt-muted);cursor:default;font-size:13px}
 .ent .clear{border:1px solid var(--pt-edge);background:none;border-radius:10px;width:44px;flex:none;color:var(--pt-muted);font-size:18px}
 .ent-name{font-size:12px;color:var(--pt-verdigris)}
 .ent-name.missing{color:var(--pt-alert)}
@@ -1327,19 +1339,27 @@ class PortierEditor extends HTMLElement {
       .filter((s) => domains.includes(s.entity_id.split(".")[0]))
       .sort((a, b) => (a.attributes.friendly_name || a.entity_id).localeCompare(b.attributes.friendly_name || b.entity_id));
     const opts = list
-      .map((s) => `<option value="${esc(s.entity_id)}">${esc(s.attributes.friendly_name || "")}</option>`)
+      .map((s) => {
+        const name = s.attributes.friendly_name || s.entity_id;
+        return `<li data-id="${esc(s.entity_id)}" data-q="${esc(`${name} ${s.entity_id}`.toLowerCase())}">
+          <b>${esc(name)}</b><small>${esc(s.entity_id)}</small></li>`;
+      })
       .join("");
-    return `<label class="f" data-f="${key}">
+    return `<div class="f" data-f="${key}">
       <span>${esc(label)}${required ? "" : ` <small>(optional)</small>`}</span>
       <div class="ent">
-        <input type="text" name="${key}" list="dl-${key}" value="${esc(value || "")}" autocomplete="off" spellcheck="false"
-          placeholder="Tippen zum Suchen …" ${required ? "required" : ""}>
+        <div class="combo">
+          <input type="text" name="${key}" value="${esc(value || "")}" autocomplete="off" spellcheck="false"
+            role="combobox" aria-expanded="false" aria-label="${esc(label)}"
+            placeholder="Tippen zum Suchen …" ${required ? "required" : ""}>
+          <button type="button" class="drop" tabindex="-1" aria-label="Liste zeigen" title="Alle zeigen">▾</button>
+          <ul class="dd" role="listbox" hidden>${opts}<li class="none" hidden>Nichts gefunden</li></ul>
+        </div>
         <button type="button" class="clear" aria-label="${esc(label)} leeren" title="Leeren und neu suchen">×</button>
       </div>
-      <datalist id="dl-${key}">${opts}</datalist>
       <span class="ent-name"></span>
       ${help ? `<small>${help}</small>` : ""}
-    </label>`;
+    </div>`;
   }
 
   num(key, label, value, unit, min, max, step = 1, help = "") {
@@ -1481,15 +1501,91 @@ class PortierEditor extends HTMLElement {
         out.textContent = !id ? "" : st ? `✓ ${st.attributes.friendly_name || id}` : "Nicht gefunden";
         out.classList.toggle("missing", !!id && !st);
       };
-      inp.addEventListener("input", update);
-      // Clicking into a filled field selects its text: typing replaces it and the
-      // suggestion list shows all matches again instead of only the current entity.
-      inp.addEventListener("focus", () => setTimeout(() => inp.select(), 0));
+      const field = inp.closest(".f");
+      const dd = field.querySelector(".dd");
+      const items = [...dd.querySelectorAll("li[data-id]")];
+      const none = dd.querySelector(".none");
+      let hi = null;
+      const shown = () => items.filter((li) => !li.hidden);
+      const mark = (li) => {
+        hi?.classList.remove("hi");
+        hi = li;
+        if (li) {
+          li.classList.add("hi");
+          li.scrollIntoView({ block: "nearest" });
+        }
+      };
+      // Show the list: everything (arrow, click, focus) or only what matches the typed text.
+      const open = (filter) => {
+        const words = (filter || "").toLowerCase().split(/\s+/).filter(Boolean);
+        const cur = inp.value.trim();
+        for (const li of items) {
+          li.hidden = !words.every((w) => li.dataset.q.includes(w));
+          li.classList.toggle("cur", li.dataset.id === cur);
+        }
+        none.hidden = shown().length > 0;
+        dd.hidden = false;
+        inp.setAttribute("aria-expanded", "true");
+        mark(shown().find((li) => li.dataset.id === cur) || (words.length ? shown()[0] : null));
+      };
+      const close = () => {
+        dd.hidden = true;
+        inp.setAttribute("aria-expanded", "false");
+        mark(null);
+      };
+      const pick = (li) => {
+        inp.value = li.dataset.id;
+        update();
+        close();
+      };
+      inp.addEventListener("input", () => {
+        update();
+        open(inp.value);
+      });
+      // Clicking into a filled field selects its text (typing replaces it) and
+      // lists every choice, not only the current one.
+      inp.addEventListener("focus", () => {
+        setTimeout(() => inp.select(), 0);
+        open("");
+      });
+      inp.addEventListener("click", () => dd.hidden && open(""));
+      inp.addEventListener("blur", () => setTimeout(() => document.activeElement !== inp && close(), 150));
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          if (dd.hidden) return open("");
+          const list = shown();
+          const i = list.indexOf(hi);
+          mark(list[e.key === "ArrowDown" ? Math.min(i + 1, list.length - 1) : Math.max(i - 1, 0)] || null);
+        } else if (e.key === "Enter" && !dd.hidden) {
+          e.preventDefault();
+          if (hi) pick(hi);
+          else close();
+        } else if (e.key === "Escape" && !dd.hidden) {
+          e.preventDefault();
+          e.stopPropagation();
+          close();
+        }
+      });
+      // mousedown keeps the focus in the field, so blur does not close the list first.
+      dd.addEventListener("mousedown", (e) => e.preventDefault());
+      dd.addEventListener("click", (e) => {
+        const li = e.target.closest("li[data-id]");
+        if (li) pick(li);
+      });
+      const drop = field.querySelector(".drop");
+      drop.addEventListener("mousedown", (e) => e.preventDefault());
+      drop.addEventListener("click", () => {
+        if (!dd.hidden) return close();
+        if (document.activeElement !== inp) inp.focus();
+        else open("");
+      });
       update();
-      inp.closest(".f").querySelector(".clear")?.addEventListener("click", () => {
+      field.querySelector(".clear")?.addEventListener("click", () => {
         inp.value = "";
         update();
         inp.focus();
+        open("");
       });
     });
     // NFC fields only while the switch is on.
