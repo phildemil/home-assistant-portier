@@ -209,39 +209,51 @@ views:
             entity: light.alle_lichter
             name: Alle Lichter
             icon: mdi:lightbulb-group
+            features_position: inline
+            features:
+              - type: light-brightness
             grid_options:
               columns: full
           - type: tile
             entity: light.wohnzimmer_decke
             name: Wohnzimmer
+            features_position: inline
+            features:
+              - type: light-brightness
             grid_options:
-              columns: 6
+              columns: full
           - type: tile
             entity: light.esstisch
             name: Esstisch
+            features_position: inline
+            features:
+              - type: light-brightness
             grid_options:
-              columns: 6
+              columns: full
           - type: tile
             entity: light.kueche
             name: Küche
+            features_position: inline
+            features:
+              - type: light-brightness
             grid_options:
-              columns: 6
+              columns: full
           - type: tile
             entity: light.flur
             name: Flur
+            features_position: inline
+            features:
+              - type: light-brightness
             grid_options:
-              columns: 6
+              columns: full
           - type: tile
             entity: light.terrasse
             name: Terrasse
+            features_position: inline
+            features:
+              - type: light-brightness
             grid_options:
-              columns: 6
-          - type: tile
-            entity: switch.steckdose_tv
-            name: TV
-            icon: mdi:television
-            grid_options:
-              columns: 6
+              columns: full
 
       # --- Rollos & Dachfenster -----------------------------------------
       - type: grid

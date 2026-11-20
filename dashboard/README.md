@@ -20,7 +20,7 @@ Zusatzkarten, kein HACS, nichts, was bei einem Update kaputtgehen kann.
 - **Haustür**: Standbild, „Tür öffnen“, zweite Kamera.
   **Klingelt es**, erscheint ganz oben groß das **Livebild** mit „Tür öffnen“ (3 Minuten lang).
 - **Wetter** mit Vorhersage; regnet es bei offenem Dachfenster, kommt ein Hinweis
-- **Licht**: „Alle Lichter“ und sechs Lieblingslampen
+- **Licht**: „Alle Lichter“ und fünf Lieblingslampen, jeweils direkt dimmbar (Schieber); Tippen aufs Symbol schaltet
 - **Rollos & Fenster**: alle Rollos / alle Dachfenster auf und zu
 - **Balkonkraftwerk**: Solar jetzt, Akku, Ertrag heute, Akku-Leistung
 - **Raumklima**: Temperatur in vier Räumen
