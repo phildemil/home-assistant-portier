@@ -18,6 +18,7 @@
     }
   },
   "options": {
+    "step": {},
     "abort": {
       "use_panel": "All settings of this door are on the **Doorbell** page in the sidebar.\n\n[Edit door]({url})"
     }

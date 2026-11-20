@@ -18,6 +18,7 @@
     }
   },
   "options": {
+    "step": {},
     "abort": {
       "use_panel": "Alle Einstellungen dieser Tür findest du auf der Seite **Türklingel** in der Seitenleiste.\n\n[Tür bearbeiten]({url})"
     }
