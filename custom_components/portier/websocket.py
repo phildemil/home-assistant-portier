@@ -135,7 +135,7 @@ async def ws_ring(
     if not _visible(connection, door):
         connection.send_error(msg["id"], "unauthorized", "Keine Berechtigung")
         return
-    await door.async_ring(source="test")
+    await door.async_ring(source="test", context=connection.context(msg))
     connection.send_result(msg["id"])
 
 

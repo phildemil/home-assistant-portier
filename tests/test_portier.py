@@ -590,3 +590,61 @@ async def test_all_phones_reaches_every_app_once(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert (len(pixel), len(tablet), len(later), len(mail)) == (1, 1, 1, 1)
     assert "actions" in pixel[0].data["data"]  # phones get picture + open button
+
+
+async def test_open_history_who_and_how(hass: HomeAssistant, hass_admin_user) -> None:
+    from homeassistant.core import Context
+
+    async_mock_service(hass, "telegram_bot", "send_photo")
+    async_mock_service(hass, "telegram_bot", "send_message")
+    async_mock_service(hass, "telegram_bot", "answer_callback_query")
+    entry = await _setup(hass, telegram_targets="12345")
+    door = entry.runtime_data
+
+    # From the Home Assistant page: the logged-in user.
+    await door.async_open(context=Context(user_id=hass_admin_user.id), via="app")
+    # From an automation: no user.
+    await door.async_open(context=Context(), via="service")
+    # From Telegram: the Telegram name.
+    await _press(hass)
+    await hass.async_block_till_done()
+    command = None
+    for token in list(door.notifier._tokens):
+        command = f"/portier_open {token}"
+    hass.bus.async_fire(
+        "telegram_callback",
+        {"data": command, "chat_id": 12345, "id": "q1", "from_first": "Max", "from_last": "Muster"},
+    )
+    await hass.async_block_till_done()
+
+    opens = door.snapshot(True)["opens"]
+    assert [(o["via"], o["who"]) for o in opens] == [
+        ("telegram", "Max Muster"),
+        ("service", None),
+        ("app", hass_admin_user.name),
+    ]
+
+    # Kept across a restart (reload of the entry).
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    again = entry.runtime_data.snapshot(True)
+    assert [o["via"] for o in again["opens"]] == ["telegram", "service", "app"]
+    assert again["last_opened"] == opens[0]["time"]
+
+
+async def test_ring_history_who_and_entity(hass: HomeAssistant, hass_admin_user) -> None:
+    from homeassistant.core import Context
+
+    entry = await _setup(hass)
+    door = entry.runtime_data
+    name = {"friendly_name": "Klingeltaste unten"}
+    hass.states.async_set("binary_sensor.klingel", "on", name)
+    await hass.async_block_till_done()
+    hass.states.async_set("binary_sensor.klingel", "off", name)
+    await door.async_ring(source="test", context=Context(user_id=hass_admin_user.id))
+    await hass.async_block_till_done()
+    history = door.snapshot(True)["history"]
+    assert (history[0]["source"], history[0]["who"]) == ("test", hass_admin_user.name)
+    assert history[1]["source"] == "trigger"
+    assert history[1]["entity"] == "binary_sensor.klingel"
+    assert history[1]["who"] == "Klingeltaste unten"

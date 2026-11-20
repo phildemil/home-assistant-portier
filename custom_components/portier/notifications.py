@@ -251,15 +251,13 @@ class Notifier:
             self._tg_live[key] = async_call_later(self.hass, window, _expired)
 
     @callback
-    def async_door_opened(self, via: str) -> None:
+    def async_door_opened(self, via: str, who: str | None = None) -> None:
         """The door was opened somehow: say so in every Telegram message still live."""
         if not self._tg_live:
             return
-        if via.startswith("telegram"):
-            who = via.partition("(")[2].rstrip(")") or "Telegram"
-            how = f"von {who} über Telegram"
-        else:
-            how = VIA_TEXT.get(via, f"über {via}")
+        how = "über Telegram" if via == "telegram" else VIA_TEXT.get(via, f"über {via}")
+        if who:
+            how = f"von {who} {how}"
         note = f"✅ Tür geöffnet · {dt_util.now().strftime('%H:%M:%S')} · {how}"
         live, self._tg_live = self._tg_live, {}
         for key, cancel in live.items():
@@ -332,14 +330,20 @@ class Notifier:
         if not self._consume(token):
             self.hass.async_create_task(self._answer(callback_id, "⏱ Zu spät – Knopf abgelaufen"))
             return
-        who = event.data.get("from_first") or "Telegram"
-        self.hass.async_create_task(self._open(None, f"telegram ({who})", callback_id))
+        who = " ".join(
+            p for p in (event.data.get("from_first"), event.data.get("from_last")) if p
+        ) or None
+        self.hass.async_create_task(self._open(None, "telegram", callback_id, who))
 
     async def _open(
-        self, context: Context | None, via: str, callback_id: str | None = None
+        self,
+        context: Context | None,
+        via: str,
+        callback_id: str | None = None,
+        who: str | None = None,
     ) -> None:
         try:
-            await self.door.async_open(context=context, via=via)
+            await self.door.async_open(context=context, via=via, who=who)
         except (HomeAssistantError, TimeoutError) as err:
             _LOGGER.error("Portier: Öffnen über %s fehlgeschlagen: %s", via, err)
             if callback_id:

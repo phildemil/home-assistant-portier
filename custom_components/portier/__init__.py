@@ -53,7 +53,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     async def ring(call: ServiceCall) -> None:
         for door in _doors_for_call(hass, call):
-            await door.async_ring(source="test")
+            await door.async_ring(source="test", context=call.context)
 
     async def open_door(call: ServiceCall) -> None:
         is_admin = await _require_admin(hass, call)

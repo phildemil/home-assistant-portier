@@ -36,4 +36,4 @@ class TestRingButton(PortierEntity, ButtonEntity):
         super().__init__(door, "test_ring")
 
     async def async_press(self) -> None:
-        await self.door.async_ring(source="test")
+        await self.door.async_ring(source="test", context=self._context)

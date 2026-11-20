@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.7.0";
+const VERSION = "1.8.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -117,6 +117,23 @@ class Chime {
     return true;
   }
 }
+
+/** Where a door opening came from, for the opener history. */
+const OPEN_VIA = {
+  app: "Home Assistant",
+  push: "Handy-Benachrichtigung",
+  telegram: "Telegram",
+  button: "Taste in Home Assistant",
+  service: "Aktion portier.open",
+};
+/** Which button rang (its name, entity id as tooltip) or who pressed "Testklingel". */
+const ringWho = (r) =>
+  r.source === "test"
+    ? `<b>${esc(r.who || "Automation")}</b> · Testklingel`
+    : r.who || r.entity
+      ? `<b>${esc(r.who || r.entity)}</b>${r.entity && r.who ? ` · ${esc(r.entity)}` : ""}`
+      : "Klingeltaster";
+const openWho = (r) => r.who || (["button", "service"].includes(r.via) ? "Automation" : "Unbekannt");
 
 /** A "play sound" button that says what it is doing, like the test ring button. */
 async function soundButton(btn, kind, volume) {
@@ -1570,7 +1587,9 @@ class PortierPanel extends HTMLElement {
       summary{cursor:pointer;font-size:14px;color:var(--pt-muted)}
       ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px;font-size:14px;font-variant-numeric:tabular-nums}
       ol li{display:flex;justify-content:space-between;color:var(--pt-ink)}
-      ol li span{color:var(--pt-muted)}
+      ol li span{color:var(--pt-muted);text-align:right}
+      ol li span b{color:var(--pt-ink);font-weight:600}
+      details[hidden]{display:none}
       ${PICTURE_CSS}
       .live-btn{flex:none;border:0;border-radius:999px;padding:6px 12px;white-space:nowrap;
         background:#0000004d;backdrop-filter:blur(6px);color:#fff;font-size:13px}
@@ -1773,7 +1792,8 @@ class PortierPanel extends HTMLElement {
           ${keyMarkup(door.can_open)}
         </div>
       </div>
-      <details><summary>Klingelverlauf</summary><ol></ol></details>`;
+      <details class="rings"><summary>Klingelverlauf</summary><ol></ol></details>
+      <details class="opens"><summary>Türöffner-Verlauf</summary><ol></ol></details>`;
     el.querySelector(".live-btn").addEventListener("click", () => this.toggleLive(door.entry_id, el));
     // A still that failed (old camera key, connection just back): try again shortly
     // with whatever key HA has by then, without waiting for the next refresh.
@@ -1865,16 +1885,29 @@ class PortierPanel extends HTMLElement {
       .filter(Boolean)
       .map((t) => `<span>${t}</span>`)
       .join("");
-    const list = card.querySelector("ol");
+    const list = card.querySelector(".rings ol");
     list.innerHTML = door.history.length
       ? door.history
           .map(
             (r) =>
-              `<li>${esc(new Date(r.time).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" }))}<span>${r.source === "test" ? "Test" : ""}</span></li>`,
+              `<li>${esc(new Date(r.time).toLocaleString([], { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }))}<span>${ringWho(r)}</span></li>`,
           )
           .join("")
       : `<li><span>Seit dem letzten Neustart hat niemand geklingelt.</span></li>`;
-    card.querySelector("details summary").textContent = `Klingelverlauf (${door.history.length})`;
+    card.querySelector(".rings summary").textContent = `Klingelverlauf (${door.history.length})`;
+    // Who opened the door, and which way.
+    const opens = door.opens || [];
+    const openBox = card.querySelector(".opens");
+    openBox.hidden = !door.opener;
+    openBox.querySelector("ol").innerHTML = opens.length
+      ? opens
+          .map(
+            (r) =>
+              `<li>${esc(new Date(r.time).toLocaleString([], { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }))}<span><b>${esc(openWho(r))}</b> · ${esc(OPEN_VIA[r.via] || r.via)}</span></li>`,
+          )
+          .join("")
+      : `<li><span>Noch nie über Portier geöffnet.</span></li>`;
+    openBox.querySelector("summary").textContent = `Türöffner-Verlauf (${opens.length})`;
     if (!this.live.has(door.entry_id)) this.refreshStill(card, door);
     const live = card.querySelector(".live-btn");
     live.hidden = !door.camera;
