@@ -25,6 +25,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    NOTIFY_ALL_MOBILE,
     CONF_ACTION_WINDOW,
     CONF_ADMIN_ONLY,
     CONF_TALK,
@@ -203,7 +204,7 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
     }
     notify = {
         _opt(CONF_NOTIFY, values): _select(
-            _notify_services(hass), "notify", multiple=True, custom=True
+            [NOTIFY_ALL_MOBILE, *_notify_services(hass)], "notify", multiple=True, custom=True
         ),
         **dict([_telegram_field(hass, values)]),
         _opt(CONF_NOTIFY_OPEN, values): BooleanSelector(),
@@ -368,7 +369,10 @@ class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
         values = dict(DEFAULTS)
         fields = {
             _opt(CONF_NOTIFY, values): _select(
-                _notify_services(self.hass), "notify", multiple=True, custom=True
+                [NOTIFY_ALL_MOBILE, *_notify_services(self.hass)],
+                "notify",
+                multiple=True,
+                custom=True,
             ),
             **dict([_telegram_field(self.hass, values)]),
             _opt(CONF_NOTIFY_OPEN, values): BooleanSelector(),

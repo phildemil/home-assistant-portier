@@ -576,3 +576,17 @@ async def test_removing_last_door_removes_loader(hass: HomeAssistant, tmp_path, 
     # A new door right away (no restart) gets the repair notice again.
     await _setup(hass)
     assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is not None
+
+
+async def test_all_phones_reaches_every_app_once(hass: HomeAssistant) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    tablet = async_mock_service(hass, "notify", "mobile_app_tablet")
+    mail = async_mock_service(hass, "notify", "mail")
+    # "all phones" plus one phone ticked singly: still one message per phone.
+    await _setup(hass, notify_services=["all_mobile_apps", "mobile_app_pixel", "mail"])
+    # A phone added after setup is included too.
+    later = async_mock_service(hass, "notify", "mobile_app_neu")
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert (len(pixel), len(tablet), len(later), len(mail)) == (1, 1, 1, 1)
+    assert "actions" in pixel[0].data["data"]  # phones get picture + open button

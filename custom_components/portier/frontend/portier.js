@@ -6,10 +6,12 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.6.6";
+const VERSION = "1.7.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
-const LATE_MS = 5000; // rings reaching this page later than this get no live picture
+const LATE_MS = 5000;
+/** Same value as NOTIFY_ALL_MOBILE in const.py. */
+const ALL_PHONES = "all_mobile_apps"; // rings reaching this page later than this get no live picture
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -1188,6 +1190,8 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 @media (max-width:520px){.two{grid-template-columns:1fr}}
 .chk{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer}
 .chk input{accent-color:var(--pt-brass);width:18px;height:18px;margin:0;flex:none}
+.chk.off{opacity:.45;cursor:default}
+.chk.all-phones small{color:var(--pt-muted);font-size:12px}
 .checks{display:grid;gap:8px;padding:10px 12px;background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px}
 .inline{display:flex;gap:10px;align-items:center}
 .inline select{flex:1}
@@ -1285,7 +1289,12 @@ class PortierEditor extends HTMLElement {
   markup(v, cfg) {
     // "notify" alone is HA's send-to-everyone service; it only causes duplicates here,
     // so it is shown only if a door already uses it.
+    const allPhones = (v.notify_services || []).includes(ALL_PHONES);
+    const phoneCount = cfg.notify_services.filter((x) => x.startsWith("mobile_app_")).length;
+    const allPhonesCheck = `<label class="chk all-phones"><input type="checkbox" name="notify_services" value="${ALL_PHONES}"
+          ${allPhones ? "checked" : ""}><b>Alle Handys mit der App</b>&nbsp;<small>(${phoneCount} jetzt, neue automatisch)</small></label>`;
     const notifyChecks = [...new Set([...cfg.notify_services.filter((x) => x !== "notify"), ...(v.notify_services || [])])]
+      .filter((svc) => svc !== ALL_PHONES)
       .map(
         (svc) => `<label class="chk"><input type="checkbox" name="notify_services" value="${esc(svc)}"
           ${(v.notify_services || []).includes(svc) ? "checked" : ""}>${esc(notifyLabel(svc, cfg.notify_labels))}</label>`,
@@ -1326,7 +1335,7 @@ class PortierEditor extends HTMLElement {
         </fieldset>
         <fieldset><legend>Benachrichtigungen</legend>
           <div class="f"><span>Push-Nachricht an</span>
-            <div class="checks">${notifyChecks || `<small>Keine Benachrichtigungsdienste gefunden. Installiere die Home-Assistant-App auf dem Handy.</small>`}</div>
+            <div class="checks">${allPhonesCheck}${notifyChecks || `<small>Keine Benachrichtigungsdienste gefunden. Installiere die Home-Assistant-App auf dem Handy.</small>`}</div>
             <small>Handys mit der Home-Assistant-App bekommen Kamerabild und Öffnen-Knopf.</small></div>
           ${telegramChecks
             ? `<div class="f" data-f="telegram_targets"><span>Telegram an</span>
@@ -1407,6 +1416,18 @@ class PortierEditor extends HTMLElement {
         inp.focus();
       });
     });
+    // "All phones" covers every single phone: grey those out so nothing is sent twice.
+    const allBox = q(`[name=notify_services][value=${ALL_PHONES}]`);
+    const syncPhones = () => {
+      for (const c of this.querySelectorAll("[name=notify_services]")) {
+        if (!c.value.startsWith("mobile_app_")) continue;
+        c.disabled = allBox.checked;
+        if (allBox.checked) c.checked = false;
+        c.closest("label").classList.toggle("off", allBox.checked);
+      }
+    };
+    allBox?.addEventListener("change", syncPhones);
+    if (allBox) syncPhones();
     const vol = q("[name=volume]");
     vol.addEventListener("input", () => (vol.nextElementSibling.value = `${vol.value} %`));
     q("[data-act=preview]").addEventListener("click", (e) =>

@@ -26,6 +26,7 @@ from .const import (
     CONF_NOTIFY_COOLDOWN,
     CONF_NOTIFY_OPEN,
     CONF_TELEGRAM_TARGETS,
+    NOTIFY_ALL_MOBILE,
     PANEL_URL,
 )
 
@@ -99,9 +100,26 @@ class Notifier:
     def _open_allowed(self) -> bool:
         return bool(self.door.opener) and bool(self.door.opt(CONF_NOTIFY_OPEN))
 
+    def _services(self) -> list[str]:
+        """Chosen notify services; "all phones" means every mobile_app service right now."""
+        chosen = [s.removeprefix("notify.") for s in self.door.opt(CONF_NOTIFY) or []]
+        result: list[str] = []
+        for service in chosen:
+            if service == NOTIFY_ALL_MOBILE:
+                result.extend(
+                    sorted(
+                        s
+                        for s in self.hass.services.async_services_for_domain("notify")
+                        if s.startswith("mobile_app_")
+                    )
+                )
+            else:
+                result.append(service)
+        return list(dict.fromkeys(result))  # each phone once, even if also ticked singly
+
     # -------------------------------------------------------------------- send
     async def async_ring(self, ring_id: int) -> None:
-        services = [s.removeprefix("notify.") for s in self.door.opt(CONF_NOTIFY) or []]
+        services = self._services()
         targets = parse_telegram_targets(self.door.opt(CONF_TELEGRAM_TARGETS))
         if not services and not targets:
             return

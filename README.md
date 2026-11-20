@@ -42,13 +42,13 @@ Die Einstellungen unter *Geräte & Dienste → Portier* bleiben gleichwertig, be
 
 ## Benachrichtigungen
 
-**Handy (Home-Assistant-App):** Unter „Push-Benachrichtigungen“ die `mobile_app_…`-Dienste wählen. Die Nachricht zeigt das Kamerabild und den Knopf **Tür öffnen** (das Handy verlangt dafür die Entsperrung). Wer auf die Nachricht tippt, landet direkt im Livebild dieser Tür, mit dem Türöffner im Bild.
+**Handy (Home-Assistant-App):** Unter „Push-Benachrichtigungen“ entweder **„Alle Handys mit der App“** wählen – dann bekommt jedes Handy mit der App die Nachricht, auch eins, das später dazukommt – oder einzelne Handys (`mobile_app_…`) ankreuzen. Die Nachricht zeigt das Kamerabild und den Knopf **Tür öffnen** (das Handy verlangt dafür die Entsperrung). Wer auf die Nachricht tippt, landet direkt im Livebild dieser Tür, mit dem Türöffner im Bild.
 
 **Telegram:** Die Telegram-Bot-Integration muss eingerichtet sein. Die Empfänger per Haken auswählen – angeboten werden die Chats, die in der Telegram-Bot-Integration erlaubt sind (ohne solche Chats: Chat-IDs kommagetrennt eintragen). Es kommt ein Foto mit **Tür öffnen**-Knopf. Nur die eingetragenen Chats dürfen damit öffnen.
 
 **Andere Dienste** (E-Mail, Alexa, …) bekommen eine Textnachricht.
 
-„notify“ ist in Home Assistant der Sammelbegriff für alle Wege, eine Nachricht zu verschicken. Jedes Handy mit der App bringt einen eigenen Dienst mit (`notify.mobile_app_<handy>`). Der Eintrag „Standard-Benachrichtigung“ (`notify.notify`) schickt an alle auf einmal – wähle entweder ihn oder die einzelnen Handys, sonst kommt es doppelt.
+„notify“ ist in Home Assistant der Sammelbegriff für alle Wege, eine Nachricht zu verschicken. Jedes Handy mit der App bringt einen eigenen Dienst mit (`notify.mobile_app_<handy>`). Ein Handy bekommt jede Nachricht nur einmal, auch wenn es zusätzlich einzeln angekreuzt ist.
 
 Jeder Öffnen-Knopf funktioniert nur **einmal** und nur kurz nach der Nachricht (Standard 120 Sekunden, einstellbar 1–120 s). In Telegram verschwindet der Knopf danach, und sobald die Tür geöffnet wurde – egal wie –, steht dort „Tür geöffnet“. Ein alter Knopf von gestern öffnet nichts mehr. Wer mehrmals klingelt, löst nicht jedes Mal eine Nachricht aus (Mindestabstand einstellbar).
 

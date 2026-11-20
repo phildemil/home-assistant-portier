@@ -146,7 +146,9 @@
       }
     },
     "notify": {
-      "options": {}
+      "options": {
+        "all_mobile_apps": "All phones with the app (new ones too)"
+      }
     },
     "event_types": {
       "options": {}
