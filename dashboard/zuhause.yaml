@@ -12,7 +12,7 @@ views:
     icon: mdi:home-heart
     type: sections
     theme: Cosy
-    max_columns: 4
+    max_columns: 3
     header:
       layout: start
       badges_position: bottom
@@ -30,11 +30,16 @@ views:
           {% if is_state('timer.klingel', 'active') -%}
           🔔 **Es klingelt gerade an der Haustür.**
           {%- else -%}
-          {%- set l = states('sensor.lichter_an') | int(0) -%}
+          {%- set w = states('weather.forecast_home') -%}
           {%- set f = states('sensor.dachfenster_offen') | int(0) -%}
-          {%- set t1 = 'Alle Lichter sind aus' if l == 0 else ('1 Licht brennt' if l == 1 else l ~ ' Lichter brennen') -%}
-          {%- set t2 = '' if f == 0 else (' · 1 Dachfenster ist offen' if f == 1 else ' · ' ~ f ~ ' Dachfenster sind offen') -%}
-          {{ t1 ~ t2 }}
+          {%- set regen = w in ['rainy', 'pouring', 'lightning-rainy', 'hail', 'snowy-rainy'] -%}
+          {%- if f > 0 and regen -%}
+          **Es regnet und {{ f }} Dachfenster {{ 'ist' if f == 1 else 'sind' }} offen!**
+          {%- elif f > 0 -%}
+          {{ f }} Dachfenster {{ 'ist' if f == 1 else 'sind' }} offen
+          {%- else -%}
+          Alles ruhig zu Hause
+          {%- endif %}
           {%- endif %}
     badges:
       - type: entity
@@ -43,9 +48,6 @@ views:
         show_name: true
         show_state: false
         color: deep-orange
-        tap_action:
-          action: navigate
-          navigation_path: /dashboard-zuhause/klingel
         visibility:
           - condition: state
             entity: timer.klingel
@@ -56,298 +58,192 @@ views:
         state_content:
           - state
           - temperature
+        tap_action:
+          action: more-info
       - type: entity
         entity: sensor.temperatur_innen
         name: Innen
         show_name: true
         icon: mdi:home-thermometer-outline
-      - type: entity
-        entity: sensor.balkonkraftwerk_leistung
-        name: Solar
-        show_name: true
-        icon: mdi:solar-power-variant
-        color: amber
-      - type: entity
-        entity: sensor.akku_ladestand
-        name: Akku
-        show_name: true
-      - type: entity
-        entity: sensor.dachfenster_offen
-        name: Dachfenster offen
-        show_name: true
-        color: orange
-        tap_action:
-          action: navigate
-          navigation_path: /dashboard-zuhause/fenster
-        visibility:
-          - condition: numeric_state
-            entity: sensor.dachfenster_offen
-            above: 0
     sections:
-      # --- Es klingelt: groß und live (nur während des Klingelns) -------
+      # --- Kameras mit Knöpfen im Bild ----------------------------------
       - type: grid
         column_span: 2
-        visibility:
-          - condition: state
-            entity: timer.klingel
-            state: active
         cards:
           - type: heading
-            heading: Es klingelt
-            icon: mdi:bell-ring
-          - type: picture-entity
-            entity: camera.haustuer
-            camera_view: live
-            show_name: false
-            show_state: false
-            aspect_ratio: "16:9"
-            grid_options:
-              columns: full
-          - &oeffnen
-            type: tile
-            entity: script.klingel_tuer_oeffnen
-            name: Tür öffnen
-            icon: mdi:door-open
-            color: primary
-            hide_state: true
-            grid_options:
-              columns: full
-            tap_action:
-              action: perform-action
-              perform_action: script.klingel_tuer_oeffnen
-              confirmation:
-                text: Haustür jetzt öffnen?
-            icon_tap_action:
-              action: perform-action
-              perform_action: script.klingel_tuer_oeffnen
-              confirmation:
-                text: Haustür jetzt öffnen?
-
-      # --- Haustür: kompakt mit Standbild (sonst) -----------------------
-      - type: grid
-        visibility:
-          - condition: state
-            entity: timer.klingel
-            state_not: active
-        cards:
-          - type: heading
-            heading: Haustür
-            icon: mdi:door
+            heading: Draußen
+            icon: mdi:cctv
             tap_action:
               action: navigate
               navigation_path: /dashboard-zuhause/kameras
-          - type: picture-entity
-            entity: camera.haustuer
-            camera_view: auto
-            show_name: false
-            show_state: false
+          # Beim Klingeln: Haustür groß und live
+          - type: picture-glance
+            title: Es klingelt
+            camera_image: camera.haustuer
+            camera_view: live
             aspect_ratio: "16:9"
             grid_options:
               columns: full
-          - <<: *oeffnen
-            grid_options:
-              columns: 6
-          - type: tile
-            entity: camera.garten
-            name: Garten
-            icon: mdi:cctv
-            hide_state: true
-            grid_options:
-              columns: 6
+              rows: auto
             tap_action:
               action: more-info
-
-      # --- Wetter -------------------------------------------------------
-      - type: grid
-        cards:
-          - type: heading
-            heading: Wetter
-            icon: mdi:weather-partly-cloudy
-          - type: weather-forecast
-            entity: weather.forecast_home
-            name: Draußen
-            show_current: true
-            show_forecast: true
-            forecast_type: daily
-            grid_options:
-              columns: full
-          - type: markdown
-            grid_options:
-              columns: full
-            content: >-
-              <ha-alert alert-type="warning">Es regnet –
-              {{ states('sensor.dachfenster_offen') }} Dachfenster offen.</ha-alert>
+            entities: &haustuer_knoepfe
+              - entity: script.klingel_tuer_oeffnen
+                name: Tür öffnen
+                icon: mdi:door-open
+                show_state: false
+                tap_action:
+                  action: perform-action
+                  perform_action: script.klingel_tuer_oeffnen
+                  confirmation:
+                    text: Haustür jetzt öffnen?
+              - entity: camera.haustuer
+                name: Klingel
+                icon: mdi:history
+                show_state: false
+                tap_action:
+                  action: navigate
+                  navigation_path: /dashboard-zuhause/klingel
             visibility:
-              - condition: numeric_state
-                entity: sensor.dachfenster_offen
-                above: 0
               - condition: state
-                entity: weather.forecast_home
-                state:
-                  - rainy
-                  - pouring
-                  - lightning-rainy
-                  - hail
-                  - snowy-rainy
-
-      # --- Licht --------------------------------------------------------
-      - type: grid
-        cards:
-          - type: heading
-            heading: Licht
-            icon: mdi:lightbulb-outline
+                entity: timer.klingel
+                state: active
+          # Sonst: beide Kameras nebeneinander
+          - type: picture-glance
+            title: Haustür
+            camera_image: camera.haustuer
+            camera_view: auto
+            aspect_ratio: "16:10"
+            grid_options:
+              columns: 12
+              rows: auto
             tap_action:
-              action: navigate
-              navigation_path: /dashboard-zuhause/licht
-            badges:
-              - type: entity
-                entity: sensor.lichter_an
-                show_state: true
-                show_icon: true
-                color: amber
-          - type: tile
-            entity: light.alle_lichter
-            name: Alle Lichter
-            icon: mdi:lightbulb-group
-            features_position: inline
-            features:
-              - type: light-brightness
+              action: more-info
+            entities: *haustuer_knoepfe
+            visibility:
+              - condition: state
+                entity: timer.klingel
+                state_not: active
+          - type: picture-glance
+            title: Garten
+            camera_image: camera.garten
+            camera_view: auto
+            aspect_ratio: "16:10"
             grid_options:
-              columns: full
-          - type: tile
-            entity: light.wohnzimmer_decke
-            name: Wohnzimmer
-            features_position: inline
-            features:
-              - type: light-brightness
-            grid_options:
-              columns: full
-          - type: tile
-            entity: light.esstisch
-            name: Esstisch
-            features_position: inline
-            features:
-              - type: light-brightness
-            grid_options:
-              columns: full
-          - type: tile
-            entity: light.kueche
-            name: Küche
-            features_position: inline
-            features:
-              - type: light-brightness
-            grid_options:
-              columns: full
-          - type: tile
-            entity: light.flur
-            name: Flur
-            features_position: inline
-            features:
-              - type: light-brightness
-            grid_options:
-              columns: full
-          - type: tile
-            entity: light.terrasse
-            name: Terrasse
-            features_position: inline
-            features:
-              - type: light-brightness
-            grid_options:
-              columns: full
-
-      # --- Rollos & Dachfenster -----------------------------------------
-      - type: grid
-        cards:
-          - type: heading
-            heading: Rollos & Fenster
-            icon: mdi:blinds-horizontal
+              columns: 12
+              rows: auto
             tap_action:
-              action: navigate
-              navigation_path: /dashboard-zuhause/fenster
-          - type: tile
-            entity: cover.alle_rollos
-            name: Alle Rollos
-            icon: mdi:blinds-horizontal
-            color: primary
-            features_position: inline
-            grid_options:
-              columns: full
-            features:
-              - type: cover-open-close
-          - type: tile
-            entity: cover.alle_dachfenster
-            name: Alle Dachfenster
-            icon: mdi:window-shutter-open
-            color: primary
-            features_position: inline
-            grid_options:
-              columns: full
-            features:
-              - type: cover-open-close
+              action: more-info
+            entities:
+              - entity: light.terrasse
+                name: Terrasse
+              - entity: light.garten
+                name: Garten
+            visibility:
+              - condition: state
+                entity: timer.klingel
+                state_not: active
 
-      # --- Balkonkraftwerk ----------------------------------------------
+      # --- Balkonkraftwerk ---------------------------------------------
       - type: grid
         cards:
           - type: heading
-            heading: Balkonkraftwerk
-            icon: mdi:solar-panel
+            heading: Sonne & Akku
+            icon: mdi:solar-power-variant
             tap_action:
               action: navigate
               navigation_path: /dashboard-zuhause/energie
+          - type: gauge
+            entity: sensor.akku_ladestand
+            name: Akku
+            needle: false
+            min: 0
+            max: 100
+            severity:
+              red: 0
+              yellow: 20
+              green: 50
+            grid_options:
+              columns: 6
+              rows: 2
           - type: tile
             entity: sensor.balkonkraftwerk_leistung
             name: Solar jetzt
             icon: mdi:solar-power-variant
             color: amber
+            vertical: true
             grid_options:
               columns: 6
-          - type: tile
-            entity: sensor.akku_ladestand
-            name: Akku
-            color: green
-            grid_options:
-              columns: 6
+              rows: 2
           - type: tile
             entity: sensor.balkonkraftwerk_ertrag_heute
-            name: Heute
+            name: Heute geerntet
             icon: mdi:white-balance-sunny
             color: amber
             grid_options:
-              columns: 6
-          - type: tile
-            entity: sensor.akku_leistung
-            name: Akku jetzt
-            icon: mdi:battery-charging
-            color: green
-            grid_options:
-              columns: 6
+              columns: full
 
-      # --- Raumklima ----------------------------------------------------
+      # --- Räume -------------------------------------------------------
       - type: grid
+        column_span: 3
         cards:
           - type: heading
-            heading: Raumklima
-            icon: mdi:home-thermometer-outline
-          - type: tile
-            entity: sensor.temperatur_wohnzimmer
-            name: Wohnzimmer
+            heading: Räume
+            icon: mdi:sofa-outline
+            badges:
+              - type: entity
+                entity: sensor.lichter_an
+                name: Lichter an
+                show_state: true
+                show_icon: true
+                color: amber
+                tap_action:
+                  action: perform-action
+                  perform_action: light.turn_off
+                  target:
+                    entity_id: light.alle_lichter
+                  confirmation:
+                    text: Alle Lichter ausschalten?
+                visibility:
+                  - condition: numeric_state
+                    entity: sensor.lichter_an
+                    above: 0
+              - type: entity
+                entity: sensor.dachfenster_offen
+                name: Dachfenster offen
+                show_state: true
+                show_icon: true
+                color: orange
+                tap_action:
+                  action: perform-action
+                  perform_action: cover.close_cover
+                  target:
+                    entity_id: cover.alle_dachfenster
+                  confirmation:
+                    text: Alle Dachfenster schließen?
+                visibility:
+                  - condition: numeric_state
+                    entity: sensor.dachfenster_offen
+                    above: 0
+          - &raum
+            type: area
+            area: wohnzimmer
+            display_type: compact
+            sensor_classes: [temperature]
+            alert_classes: [window, door, moisture]
+            features_position: inline
+            features:
+              - type: area-controls
+                controls: [light, cover-shutter, cover-window]
             grid_options:
               columns: 6
-          - type: tile
-            entity: sensor.temperatur_schlafzimmer
-            name: Schlafzimmer
-            grid_options:
-              columns: 6
-          - type: tile
-            entity: sensor.temperatur_kinderzimmer
-            name: Kinderzimmer
-            grid_options:
-              columns: 6
-          - type: tile
-            entity: sensor.temperatur_bad
-            name: Bad
-            grid_options:
-              columns: 6
+          - {<<: *raum, area: kuche}
+          - {<<: *raum, area: schlafzimmer}
+          - {<<: *raum, area: kinderzimmer}
+          - {<<: *raum, area: buro}
+          - {<<: *raum, area: bad}
+          - {<<: *raum, area: flur}
+          - {<<: *raum, area: garten}
 
   # ===================================================================
   #  LICHT – alle 15 Aktoren nach Räumen

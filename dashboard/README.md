@@ -13,17 +13,16 @@ Zusatzkarten, kein HACS, nichts, was bei einem Update kaputtgehen kann.
 
 ## Aufbau
 
-**Übersicht**: von allem ein bisschen, auf dem Tablet auf einen Blick:
+**Übersicht**: kompakt, auf dem Tablet ohne Scrollen:
 
-- Begrüßung und eine Zeile Status („3 Lichter brennen · 2 Dachfenster sind offen“)
-- Kleine Plaketten: Wetter, Temperatur innen, Solar, Akku; „Dachfenster offen“ nur wenn nötig
-- **Haustür**: Standbild, „Tür öffnen“, zweite Kamera.
-  **Klingelt es**, erscheint ganz oben groß das **Livebild** mit „Tür öffnen“ (3 Minuten lang).
-- **Wetter** mit Vorhersage; regnet es bei offenem Dachfenster, kommt ein Hinweis
-- **Licht**: „Alle Lichter“ und fünf Lieblingslampen, jeweils direkt dimmbar (Schieber); Tippen aufs Symbol schaltet
-- **Rollos & Fenster**: alle Rollos / alle Dachfenster auf und zu
-- **Balkonkraftwerk**: Solar jetzt, Akku, Ertrag heute, Akku-Leistung
-- **Raumklima**: Temperatur in vier Räumen
+- Begrüßung und eine Zeile Status („Alles ruhig zu Hause“, „2 Dachfenster sind offen“, bei Regen
+  „Es regnet und 2 Dachfenster sind offen!“)
+- Plaketten: Wetter, Temperatur innen
+- **Draußen**: beide Kamerabilder mit **Knöpfen im Bild** – Haustür: *Tür öffnen*, *Klingel-Verlauf*;
+  Garten: Lichter. **Klingelt es**, wird die Haustür groß und **live**, 3 Minuten lang.
+- **Sonne & Akku**: Akku als Anzeige, Solarleistung jetzt, Ertrag heute
+- **Räume**: eine Karte pro Raum mit Temperatur und Knöpfen für Licht, Rollo und Dachfenster.
+  Oben rechts „💡 3“ (Tipp: alle Lichter aus) und „Dachfenster 2“ (Tipp: alle schließen).
 
 Ein Tipp auf eine Überschrift mit „›“ führt zur Detailseite:
 **Licht** (alle 15 Aktoren nach Räumen, mit Helligkeit), **Rollos & Fenster** (alle 10 einzeln),
@@ -69,6 +68,7 @@ In allen drei Dateien mit Suchen & Ersetzen. Gibt es ein Gerät nicht, die Kache
 | `sensor.akku_leistung` | Akku lädt (+) / entlädt (−) in W |
 | `sensor.temperatur_wohnzimmer`, `…_schlafzimmer`, `…_kinderzimmer`, `…_bad` | Raumtemperaturen |
 | `weather.forecast_home` | Wetter (Standard-Name der Met-Integration) |
+| `wohnzimmer`, `kuche`, `schlafzimmer`, `kinderzimmer`, `buro`, `bad`, `flur`, `garten` | Bereichs-IDs für die Raumkarten (stehen in der Adresszeile unter *Einstellungen → Bereiche*) |
 | `notify.mobile_app_handy` | dein Android-Handy |
 | `media_player.tablet_flur`, `media_player.handy_app` | browser_mod-Player für den Gong |
 | `123456789` (2× in `klingel.yaml`) | Telegram-Chat- bzw. Benutzer-IDs |
@@ -114,6 +114,12 @@ Nach der ersten Klingel-Push: *Android-Einstellungen → Apps → Home Assistant
 
 „Tür öffnen“ fragt kurz nach und gibt einen 2-Sekunden-Impuls. Startet HA mitten im Impuls neu,
 wird das Relais beim Start abgeschaltet.
+
+## Raumkarten
+
+Die Raumkarten holen sich Licht, Rollos, Dachfenster und Temperatur **selbst** aus den Bereichen von
+Home Assistant. Dafür müssen die Geräte nur dem richtigen Bereich zugeordnet sein
+(*Einstellungen → Bereiche*). Neue Lampen erscheinen dann automatisch, ohne das Dashboard anzufassen.
 
 ## Getestet
 
