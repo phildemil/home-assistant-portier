@@ -17,11 +17,11 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
-    TextSelectorConfig,
 )
 
 from .const import (
@@ -68,6 +68,7 @@ from .const import (
     SOUND_TRIPLE,
     TRIGGER_DOMAINS,
 )
+from .notifications import parse_telegram_targets
 
 DEVICE_KEYS = (CONF_TRIGGER, CONF_CAMERA, CONF_OPENER, CONF_CONTACT, CONF_GONG)
 SECTIONS = {
@@ -117,8 +118,60 @@ def _opt(key: str, values: dict[str, Any]) -> vol.Optional:
 
 
 def _notify_services(hass: HomeAssistant) -> list[str]:
-    skip = {"send_message", "persistent_notification"}
+    # "notify" alone sends to every phone at once and would only double the push.
+    skip = {"send_message", "persistent_notification", "notify"}
     return sorted(s for s in hass.services.async_services_for_domain("notify") if s not in skip)
+
+
+def telegram_chats(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """The allowed chats set up in the Telegram bot integration, by name."""
+    chats: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for entry in hass.config_entries.async_entries("telegram_bot"):
+        for sub in getattr(entry, "subentries", {}).values():
+            if sub.subentry_type != "allowed_chat_ids":
+                continue
+            try:
+                chat_id = int(sub.data.get("chat_id"))
+            except (TypeError, ValueError):
+                continue
+            if chat_id in seen:
+                continue
+            seen.add(chat_id)
+            chats.append({"id": chat_id, "name": sub.title or str(chat_id)})
+    return chats
+
+
+def _telegram_field(hass: HomeAssistant, values: dict[str, Any]) -> tuple[vol.Optional, Any]:
+    """Tick the chats known to the Telegram bot; other IDs can still be typed in."""
+    saved = [str(i) for i in parse_telegram_targets(values.get(CONF_TELEGRAM_TARGETS))]
+    known = {str(c["id"]): c["name"] for c in telegram_chats(hass)}
+    options = [
+        SelectOptionDict(value=cid, label=f"{name} ({cid})") for cid, name in known.items()
+    ] + [SelectOptionDict(value=cid, label=cid) for cid in saved if cid not in known]
+    key = (
+        vol.Optional(CONF_TELEGRAM_TARGETS, description={"suggested_value": saved})
+        if saved
+        else vol.Optional(CONF_TELEGRAM_TARGETS)
+    )
+    selector = SelectSelector(
+        SelectSelectorConfig(
+            options=options,
+            multiple=True,
+            custom_value=True,
+            mode=SelectSelectorMode.LIST if options else SelectSelectorMode.DROPDOWN,
+        )
+    )
+    return key, selector
+
+
+def _telegram_to_text(flat: dict[str, Any]) -> None:
+    """The form gives a list; options keep the comma-separated text."""
+    value = flat.get(CONF_TELEGRAM_TARGETS)
+    if isinstance(value, list):
+        flat[CONF_TELEGRAM_TARGETS] = ", ".join(
+            str(i) for i in parse_telegram_targets(",".join(str(v) for v in value))
+        )
 
 
 def _device_fields(values: dict[str, Any], with_name: bool) -> dict:
@@ -151,7 +204,7 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
         _opt(CONF_NOTIFY, values): _select(
             _notify_services(hass), "notify", multiple=True, custom=True
         ),
-        _opt(CONF_TELEGRAM_TARGETS, values): TextSelector(TextSelectorConfig()),
+        **dict([_telegram_field(hass, values)]),
         _opt(CONF_NOTIFY_OPEN, values): BooleanSelector(),
         _opt(CONF_NOTIFY_COOLDOWN, values): _num(0, 600, 1, "s"),
         _opt(CONF_ACTION_WINDOW, values): _num(1, 120, 1, "s"),
@@ -301,6 +354,8 @@ class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
+            user_input = dict(user_input)
+            _telegram_to_text(user_input)
             options = {**DEFAULTS, **self._data, **user_input}
             return self.async_create_entry(title=self._data[CONF_NAME], data={}, options=options)
         values = dict(DEFAULTS)
@@ -308,7 +363,7 @@ class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
             _opt(CONF_NOTIFY, values): _select(
                 _notify_services(self.hass), "notify", multiple=True, custom=True
             ),
-            _opt(CONF_TELEGRAM_TARGETS, values): TextSelector(TextSelectorConfig()),
+            **dict([_telegram_field(self.hass, values)]),
             _opt(CONF_NOTIFY_OPEN, values): BooleanSelector(),
         }
         return self.async_show_form(step_id="notify", data_schema=vol.Schema(fields))
@@ -330,6 +385,7 @@ class PortierOptionsFlow(OptionsFlowWithReload):
             for key in (CONF_NOTIFY, CONF_EVENT_TYPES):
                 flat.setdefault(key, [])
             flat.setdefault(CONF_TELEGRAM_TARGETS, "")
+            _telegram_to_text(flat)
             errors = _validate(self.hass, flat, self.config_entry.entry_id)
             if not errors:
                 options = {**current, **flat}

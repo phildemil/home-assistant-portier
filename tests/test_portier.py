@@ -497,3 +497,21 @@ async def test_migrate_window_minutes_to_seconds(hass: HomeAssistant) -> None:
     assert entry.minor_version == 2
     assert entry.options["action_window_seconds"] == 120
     assert "action_window_minutes" not in entry.options
+
+
+async def test_config_flow_telegram_picker(hass: HomeAssistant) -> None:
+    hass.states.async_set("binary_sensor.klingel", "off")
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Haustür", "trigger_entity": "binary_sensor.klingel"}
+    )
+    assert result["step_id"] == "notify"
+    # The Telegram field is a multi-select, not a text box.
+    field = next(k for k in result["data_schema"].schema if k == "telegram_targets")
+    selector = result["data_schema"].schema[field]
+    assert selector.config["multiple"] is True
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"telegram_targets": ["12345", " -99", "kaputt"]}
+    )
+    assert result["type"] == "create_entry"
+    assert result["options"]["telegram_targets"] == "12345, -99"

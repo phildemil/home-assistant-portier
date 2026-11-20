@@ -25,12 +25,12 @@
         "description": "Where should a message go when someone rings? Can stay empty and be changed later.",
         "data": {
           "notify_services": "Push notifications",
-          "telegram_targets": "Telegram chat IDs",
+          "telegram_targets": "Telegram recipients",
           "notify_allow_open": "\"Open door\" button in the message"
         },
         "data_description": {
           "notify_services": "Phones with the Home Assistant app (mobile_app_…) get a camera picture and buttons. Other services get text.",
-          "telegram_targets": "Comma separated. Needs the Telegram bot integration. Sends a photo with an open button; only these chats may open.",
+          "telegram_targets": "Tick the chats allowed in the Telegram bot integration (other chat IDs can be typed in). They get a photo with an open button; only these chats may open.",
           "notify_allow_open": "Phones require unlocking. Each button works only once."
         }
       }
@@ -64,14 +64,14 @@
             "name": "Notifications",
             "data": {
               "notify_services": "Push notifications",
-              "telegram_targets": "Telegram chat IDs",
+              "telegram_targets": "Telegram recipients",
               "notify_allow_open": "\"Open door\" button in the message",
               "notify_cooldown": "Minimum time between messages",
               "action_window_seconds": "Open button valid for (seconds)"
             },
             "data_description": {
               "notify_services": "Phones with the Home Assistant app (mobile_app_…) get a camera picture and buttons. Other services get text.",
-              "telegram_targets": "Comma separated. Needs the Telegram bot integration. Sends a photo with an open button; only these chats may open.",
+              "telegram_targets": "Tick the chats allowed in the Telegram bot integration (other chat IDs can be typed in). They get a photo with an open button; only these chats may open.",
               "notify_allow_open": "Phones require unlocking. Each button works only once.",
               "action_window_seconds": "Counted from the notification. Afterwards the button does nothing and disappears from Telegram."
             }
