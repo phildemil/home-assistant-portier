@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.11.1";
+const VERSION = "1.11.2";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1549,7 +1549,15 @@ class PortierEditor extends HTMLElement {
         setTimeout(() => inp.select(), 0);
         open("");
       });
-      inp.addEventListener("click", () => dd.hidden && open(""));
+      // Clicking the field toggles the list like any dropdown. The first click only focuses
+      // (focus opens the list), so remember before the click whether it was open already.
+      let wasOpen = false;
+      inp.addEventListener("mousedown", () => (wasOpen = focused() && !dd.hidden));
+      inp.addEventListener("click", () => {
+        if (wasOpen) close();
+        else if (dd.hidden) open("");
+        wasOpen = false;
+      });
       inp.addEventListener("blur", () => setTimeout(() => !focused() && close(), 150));
       inp.addEventListener("keydown", (e) => {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
