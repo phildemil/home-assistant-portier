@@ -31,13 +31,16 @@ CONF_LIVE_SECONDS: Final = "live_seconds"
 CONF_AFTER_OPEN_SECONDS: Final = "after_open_seconds"
 CONF_SOUND: Final = "sound"
 CONF_VOLUME: Final = "volume"
+CONF_TALK: Final = "talk"
 
 # Notifications
 CONF_NOTIFY: Final = "notify_services"
 CONF_TELEGRAM_TARGETS: Final = "telegram_targets"
 CONF_NOTIFY_OPEN: Final = "notify_allow_open"
 CONF_NOTIFY_COOLDOWN: Final = "notify_cooldown"
-CONF_ACTION_WINDOW: Final = "action_window_minutes"
+CONF_ACTION_WINDOW: Final = "action_window_seconds"
+OLD_ACTION_WINDOW_MINUTES: Final = "action_window_minutes"
+ACTION_WINDOW_MAX: Final = 120
 
 # Form sections
 SECTION_TRIGGER: Final = "trigger_options"
@@ -69,11 +72,12 @@ DEFAULTS: Final = {
     CONF_AFTER_OPEN_SECONDS: 20,
     CONF_SOUND: SOUND_DINGDONG,
     CONF_VOLUME: 70,
+    CONF_TALK: False,
     CONF_NOTIFY: [],
     CONF_TELEGRAM_TARGETS: "",
     CONF_NOTIFY_OPEN: True,
     CONF_NOTIFY_COOLDOWN: 30,
-    CONF_ACTION_WINDOW: 5,
+    CONF_ACTION_WINDOW: 120,
 }
 
 # Entity domains

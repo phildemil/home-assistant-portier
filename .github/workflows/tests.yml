@@ -1,0 +1,64 @@
+# Runs automatically on GitHub for every push and pull request.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: Tests gegen echtes Home Assistant
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Testumgebung installieren
+        run: |
+          pip install pytest-homeassistant-custom-component
+          # Portier needs the HA frontend (panel, static files); install the exact
+          # version that this Home Assistant release asks for.
+          req=$(python -c "import json, pathlib, homeassistant.components.frontend as f; print(json.loads((pathlib.Path(f.__file__).parent / 'manifest.json').read_text())['requirements'][0])")
+          echo "Installiere $req"
+          pip install "$req"
+      - name: Tests ausführen
+        run: pytest -v
+
+  frontend:
+    name: Oberfläche auf Syntaxfehler prüfen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: |
+          cp custom_components/portier/frontend/portier.js /tmp/portier.mjs
+          node --check /tmp/portier.mjs
+      - name: Versionen passen zusammen (manifest.json = portier.js)
+        run: |
+          m=$(python3 -c "import json;print(json.load(open('custom_components/portier/manifest.json'))['version'])")
+          j=$(grep -oP 'const VERSION = "\K[^"]+' custom_components/portier/frontend/portier.js)
+          echo "manifest=$m portier.js=$j"
+          test "$m" = "$j"
+
+  hassfest:
+    name: Home-Assistant-Prüfung (hassfest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS-Prüfung
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # Repo is private / has no topics or releases yet; these checks only
+          # make sense once it is published in HACS.
+          ignore: brands topics description images

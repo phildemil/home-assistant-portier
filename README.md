@@ -48,7 +48,7 @@ Die Einstellungen unter *Geräte & Dienste → Portier* bleiben gleichwertig, be
 
 „notify“ ist in Home Assistant der Sammelbegriff für alle Wege, eine Nachricht zu verschicken. Jedes Handy mit der App bringt einen eigenen Dienst mit (`notify.mobile_app_<handy>`). Der Eintrag „Standard-Benachrichtigung“ (`notify.notify`) schickt an alle auf einmal – wähle entweder ihn oder die einzelnen Handys, sonst kommt es doppelt.
 
-Jeder Öffnen-Knopf funktioniert nur **einmal** und nur für ein paar Minuten (einstellbar). Ein alter Knopf von gestern öffnet nichts mehr. Wer mehrmals klingelt, löst nicht jedes Mal eine Nachricht aus (Mindestabstand einstellbar).
+Jeder Öffnen-Knopf funktioniert nur **einmal** und nur kurz nach der Nachricht (Standard 120 Sekunden, einstellbar 1–120 s). In Telegram verschwindet der Knopf danach, und sobald die Tür geöffnet wurde – egal wie –, steht dort „Tür geöffnet“. Ein alter Knopf von gestern öffnet nichts mehr. Wer mehrmals klingelt, löst nicht jedes Mal eine Nachricht aus (Mindestabstand einstellbar).
 
 Wenn du bisher eigene Automationen für Push oder Telegram hast, deaktiviere sie, sonst kommen Nachrichten doppelt.
 

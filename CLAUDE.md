@@ -20,6 +20,12 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   Live, Testklingel, Verlauf, Einstellungen pro Gerät (Overlay/Ton an/aus).
 - Popup und Türkarten: das Kamerabild ist die ganze Karte, Name, Status, Knöpfe und Türöffner
   liegen als Overlay im Bild (`PICTURE_CSS`, Klasse `.plate.pic`).
+- Gegensprechen (Option `talk` pro Tür, Standard aus): WebRTC-Angebot mit Audio `sendrecv`,
+  Mikrofon wird nur beim Gedrückthalten per `replaceTrack` angehängt (keine Neuverhandlung).
+  Antwort-SDP entscheidet, ob die Kamera Ton annimmt (`answerAcceptsAudio`). Knöpfe:
+  Lautsprecher (Kameraton an/aus) + Sprechen (`wireTalk`). Braucht https (Browser gibt das
+  Mikrofon sonst nicht frei) – dann steht „Nur mit HTTPS“ am Knopf. Mit echter Kamera noch
+  ungetestet; geprüft nur mit simulierter WebRTC-Gegenstelle im Browser.
 
 ## Wichtige Entscheidungen des Benutzers (nicht wieder ändern)
 - Allgemein bauen: jedes Relais, jede Kamera, keine Shelly-Sonderlogik.
@@ -37,7 +43,7 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   Kameraansichten nur lokal. Ein altes × schließt nie ein neueres Klingeln.
 - Browser-Klingelton ist zweitrangig (echter Gong hängt meist am Relais), Auswahl bleibt.
 - `notify.notify` wird im Editor ausgeblendet (würde Push doppelt senden).
-- Später geplant: 2-Wege-Audio (go2rtc/WebRTC).
+- 2-Wege-Audio bleibt in Home Assistant (kein Standalone-Eigenbau, vom Benutzer verworfen).
 
 ## Architektur
 - `manager.py` – `PortierDoor`: Trigger-Erkennung (Flanke, Event-Typ-Filter, Entprellung),
@@ -63,7 +69,11 @@ nicht nach. Dashboard-Ressourcen helfen nicht (die neue Übersicht lädt sie nic
 ab, bis Portier läuft, und importiert dann das Modul. Selbes Vorgehen wie card-mod.
 
 ## Testen
-- `pytest` mit `pytest-homeassistant-custom-component` (31 Tests in `tests/`).
+- `pytest` mit `pytest-homeassistant-custom-component` (35 Tests in `tests/`). Lokal unter Windows:
+  `tools\run-tests.ps1` (legt `tools\.venv` mit Python 3.14 an; `tools\winshim` ersetzt die
+  Linux-Module `fcntl`/`resource` und lockert die Socket-Sperre). Nach jeder Änderung laufen lassen.
+- GitHub Actions (`.github/workflows/tests.yml`): pytest, JS-Syntax + Versionsgleichheit
+  manifest/portier.js, hassfest, HACS-Prüfung.
 - Echter Test: HA in einem venv mit `hass -c <config>`, Playwright für Overlay/Editor.
   Kritische Szenarien: Seite **während** des HA-Starts geladen, HA-Neustart bei offener Seite,
   mehrfaches Klingeln, zwei Geräte gleichzeitig (synchrones Schließen).

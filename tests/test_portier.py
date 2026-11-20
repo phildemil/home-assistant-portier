@@ -226,7 +226,7 @@ async def test_no_open_button_without_opener(hass: HomeAssistant) -> None:
     await _setup(hass, opener_entity=None, notify_services=["mobile_app_pixel"])
     await _press(hass)
     await hass.async_block_till_done()
-    actions = calls[0].data["data"]["actions"]
+    actions = calls[0].data["data"].get("actions", [])
     assert all(not a["action"].startswith("PORTIER_OPEN_") for a in actions)
     assert not [s for s in hass.states.async_all("button") if "open_door" in s.entity_id]
 
@@ -433,3 +433,67 @@ async def test_repair_flow_writes_yaml(hass: HomeAssistant, hass_client, tmp_pat
     r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
     assert (await r.json())["type"] == "create_entry"
     assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is None
+
+
+async def test_talk_option(hass: HomeAssistant) -> None:
+    """Two-way audio is off unless switched on, and reaches the frontend snapshot."""
+    entry = await _setup(hass)
+    assert entry.runtime_data.snapshot(True)["talk"] is False
+    entry2 = await _setup(hass, talk=True, opener_entity=None, trigger_entity="binary_sensor.klingel2")
+    assert entry2.runtime_data.snapshot(True)["talk"] is True
+
+
+async def _telegram_ring(hass: HomeAssistant):
+    from homeassistant.core import SupportsResponse
+
+    async_mock_service(
+        hass,
+        "telegram_bot",
+        "send_photo",
+        response={"chats": [{"chat_id": 12345, "message_id": 7}]},
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    async_mock_service(hass, "telegram_bot", "send_message")
+    edits = async_mock_service(hass, "telegram_bot", "edit_caption")
+    entry = await _setup(hass, telegram_targets="12345", action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    return entry, edits
+
+
+async def test_telegram_shows_opened(hass: HomeAssistant) -> None:
+    entry, edits = await _telegram_ring(hass)
+    await entry.runtime_data.async_open(via="app")
+    await hass.async_block_till_done()
+    assert len(edits) == 1
+    assert edits[0].data["message_id"] == 7
+    assert edits[0].data["chat_id"] == 12345
+    assert edits[0].data["inline_keyboard"] == []
+    assert "✅ Tür geöffnet" in edits[0].data["caption"]
+    # Opening again later does not touch the message a second time.
+    await entry.runtime_data.async_open(via="app")
+    await hass.async_block_till_done()
+    assert len(edits) == 1
+
+
+async def test_telegram_button_expires(hass: HomeAssistant) -> None:
+    _entry, edits = await _telegram_ring(hass)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert len(edits) == 1
+    assert edits[0].data["inline_keyboard"] == []
+    assert "nicht mehr möglich" in edits[0].data["caption"]
+
+
+async def test_migrate_window_minutes_to_seconds(hass: HomeAssistant) -> None:
+    opts = {k: v for k, v in BASE.items() if k != "action_window_seconds"}
+    opts["action_window_minutes"] = 5
+    entry = MockConfigEntry(domain=DOMAIN, title="Haustür", options=opts, version=1, minor_version=1)
+    entry.add_to_hass(hass)
+    await async_setup_component(hass, "input_boolean", {"input_boolean": {"oeffner": {}}})
+    hass.states.async_set("binary_sensor.klingel", "off")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.minor_version == 2
+    assert entry.options["action_window_seconds"] == 120
+    assert "action_window_minutes" not in entry.options

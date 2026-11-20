@@ -50,6 +50,7 @@ from .const import (
     CONF_PULSE_MODE,
     CONF_PULSE_SECONDS,
     CONF_SOUND,
+    CONF_TALK,
     CONF_TRIGGER,
     CONF_TRIGGER_EDGE,
     CONF_VOLUME,
@@ -305,6 +306,7 @@ class PortierDoor:
             context=context,
         )
         async_dispatcher_send(self.hass, SIGNAL_UPDATE, self.entry.entry_id)
+        self.notifier.async_door_opened(via)
         _LOGGER.info("Portier: %s geöffnet (%s)", self.name, via)
 
     async def _end_pulse(self, entity_id: str) -> None:
@@ -408,6 +410,7 @@ class PortierDoor:
             "after_open_seconds": int(self.opt(CONF_AFTER_OPEN_SECONDS)),
             "sound": self.opt(CONF_SOUND),
             "volume": int(self.opt(CONF_VOLUME)),
+            "talk": bool(self.opt(CONF_TALK)),
             "ring_count": st.ring_count,
             "ring_id": st.ring_id,
             "last_ring": st.last_ring.isoformat() if st.last_ring else None,

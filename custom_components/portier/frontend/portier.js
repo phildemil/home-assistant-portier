@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.4.0";
+const VERSION = "1.6.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -114,9 +114,18 @@ class Chime {
  * HA camera provides. Nothing is fetched from outside Home Assistant.
  */
 class CameraView {
-  constructor(entityId, getHass) {
+  /**
+   * @param {object} [opts]
+   * @param {boolean} [opts.talk] offer a microphone back channel (two-way audio)
+   * @param {(state: string) => void} [opts.onTalk] "wait" | "ready" | "unsupported" | "insecure"
+   */
+  constructor(entityId, getHass, { talk = false, onTalk = null } = {}) {
     this.entityId = entityId;
     this.getHass = getHass;
+    this.talk = talk;
+    this.onTalk = onTalk;
+    this.audioSender = null;
+    this.micStream = null;
     this.el = document.createElement("div");
     this.el.className = "cam";
     this.still = document.createElement("img");
@@ -134,10 +143,27 @@ class CameraView {
     return this.getHass();
   }
 
+  setTalk(state) {
+    this.talkState = state;
+    this.onTalk?.(state);
+  }
+
   async start() {
     const hass = this.hass;
     const state = hass?.states?.[this.entityId];
-    if (!hass || !state) return this.message("Keine Kamera");
+    if (this.talk) {
+      // Browsers hand out the microphone only on https:// (or localhost).
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        this.talk = false;
+        this.setTalk("insecure");
+      } else {
+        this.setTalk("wait");
+      }
+    }
+    if (!hass || !state) {
+      if (this.talk) this.setTalk("unsupported");
+      return this.message("Keine Kamera");
+    }
     const pic = state.attributes.entity_picture;
     if (pic) this.still.src = `${pic}${pic.includes("?") ? "&" : "?"}t=${Date.now()}`;
     let types = [];
@@ -157,6 +183,8 @@ class CameraView {
       }
     }
     if (this.closed) return;
+    // Talking needs WebRTC; the fallbacks below only receive.
+    if (this.talk) this.setTalk("unsupported");
     if (types.includes("hls")) {
       const probe = document.createElement("video");
       if (probe.canPlayType("application/vnd.apple.mpegurl")) {
@@ -189,7 +217,10 @@ class CameraView {
         const pc = new RTCPeerConnection(config);
         this.pc = pc;
         pc.addTransceiver("video", { direction: "recvonly" });
-        pc.addTransceiver("audio", { direction: "recvonly" });
+        // With talking enabled, audio goes both ways. The microphone is attached later
+        // (replaceTrack, no renegotiation) and only while the talk button is held.
+        const audio = pc.addTransceiver("audio", { direction: this.talk ? "sendrecv" : "recvonly" });
+        this.audioSender = this.talk ? audio.sender : null;
         const stream = new MediaStream();
         pc.ontrack = (ev) => {
           stream.addTrack(ev.track);
@@ -220,6 +251,11 @@ class CameraView {
               pending.splice(0).forEach(sendCandidate);
             } else if (msg.type === "answer") {
               await pc.setRemoteDescription({ type: "answer", sdp: msg.answer });
+              if (this.talk) {
+                const ok = answerAcceptsAudio(msg.answer);
+                if (!ok) this.audioSender = null;
+                this.setTalk(ok ? "ready" : "unsupported");
+              }
             } else if (msg.type === "candidate") {
               try {
                 await pc.addIceCandidate(msg.candidate);
@@ -238,7 +274,45 @@ class CameraView {
     });
   }
 
+  /** Camera sound on/off (videos start muted so they may autoplay). Returns the new state. */
+  toggleSound(on) {
+    const v = this.media?.tagName === "VIDEO" ? this.media : null;
+    if (!v) return false;
+    v.muted = on === undefined ? !v.muted : !on;
+    v.play?.().catch(() => {});
+    return !v.muted;
+  }
+
+  /** Start sending the microphone to the camera. Throws with a short German reason. */
+  async talkStart() {
+    if (!this.audioSender) throw new Error(this.talkState === "insecure" ? "Nur mit HTTPS" : "Kamera hört nicht");
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch (err) {
+      throw new Error(err?.name === "NotAllowedError" ? "Mikrofon nicht erlaubt" : "Kein Mikrofon");
+    }
+    if (this.closed || !this.audioSender) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("Livebild beendet");
+    }
+    this.talkStop();
+    this.micStream = stream;
+    await this.audioSender.replaceTrack(stream.getAudioTracks()[0]);
+    this.toggleSound(true); // hear the answer
+  }
+
+  talkStop() {
+    this.audioSender?.replaceTrack(null).catch(() => {});
+    this.micStream?.getTracks().forEach((t) => t.stop());
+    this.micStream = null;
+  }
+
   stopWebrtc() {
+    this.talkStop();
+    this.audioSender = null;
     try {
       this.unsub?.();
     } catch {
@@ -380,8 +454,25 @@ button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
 .key-label.ok{color:var(--pt-verdigris)}
 .key-label.bad{color:var(--pt-alert)}
 
+/* Two-way audio: speaker toggle + push-to-talk */
+.talk-wrap{display:flex;align-items:flex-end;gap:10px;flex:none}
+.talk-wrap[hidden]{display:none}
+.mic-wrap{display:flex;flex-direction:column;align-items:center;gap:4px}
+.spk,.mic{border:0;padding:0;display:grid;place-items:center;color:#fff;border-radius:50%;
+  background:#0000004d;backdrop-filter:blur(6px);box-shadow:0 0 0 1px #ffffff40;
+  touch-action:none;user-select:none;-webkit-user-select:none;transition:background .15s,transform .12s}
+.spk{width:38px;height:38px;margin-bottom:20px}
+.spk svg{width:20px;height:20px}
+.spk.on{background:#ffffff40}
+.mic{width:56px;height:56px}
+.mic svg{width:26px;height:26px}
+.mic:hover:not([disabled]){background:#00000080}
+.mic.on{background:var(--pt-verdigris);box-shadow:0 0 0 4px #4fa38a55;transform:scale(1.06)}
+.mic[disabled]{opacity:.45;cursor:not-allowed}
+.talk-label{font-size:11px;color:#ffffffd9;white-space:nowrap;text-shadow:0 1px 3px #000c}
+
 @media (prefers-reduced-motion:reduce){
-  .lamp.on,.key.busy .ring{animation:none}.timeline>i,.flash,.key{transition:none}
+  .lamp.on,.key.busy .ring{animation:none}.timeline>i,.flash,.key,.mic,.spk{transition:none}
 }
 `;
 
@@ -428,6 +519,105 @@ function keyMarkup(canOpen) {
     <button class="key" aria-label="Tür öffnen">${KEY_SVG}${RING_SVG}</button>
     <span class="key-label">Tür öffnen</span>
   </div>`;
+}
+
+/** Does the WebRTC answer accept audio from us (camera speaker / back channel)? */
+function answerAcceptsAudio(sdp) {
+  const audio = String(sdp || "")
+    .split(/\r?\nm=/)
+    .find((s) => s.startsWith("audio") || s.startsWith("m=audio"));
+  if (!audio || /^m?=?audio 0 /.test(audio)) return false;
+  if (/a=(sendonly|inactive)/.test(audio)) return false;
+  return true; // sendrecv, recvonly or no direction (= sendrecv)
+}
+
+const MIC_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>`;
+const SPK_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3Zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4Z"/></svg>`;
+const MUTE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3Zm18.6 1.4-1.4-1.4L18 11.2 15.8 9l-1.4 1.4 2.2 2.2-2.2 2.2 1.4 1.4 2.2-2.2 2.2 2.2 1.4-1.4-2.2-2.2 2.2-2.2Z"/></svg>`;
+
+function talkMarkup() {
+  return `<div class="talk-wrap" hidden>
+    <button class="spk" aria-label="Ton der Kamera" aria-pressed="false">${MUTE_SVG}</button>
+    <div class="mic-wrap">
+      <button class="mic" aria-label="Gedrückt halten zum Sprechen" disabled>${MIC_SVG}</button>
+      <span class="talk-label">Verbindet …</span>
+    </div>
+  </div>`;
+}
+
+const TALK_TEXT = {
+  wait: "Verbindet …",
+  ready: "Halten zum Sprechen",
+  unsupported: "Kamera hört nicht",
+  insecure: "Nur mit HTTPS",
+};
+
+/**
+ * Wires speaker + push-to-talk buttons for a CameraView. Returns onTalk(state) for the view.
+ * getView() returns the current CameraView (or null).
+ */
+function wireTalk(root, getView) {
+  const wrap = root.querySelector(".talk-wrap");
+  const mic = root.querySelector(".mic");
+  const spk = root.querySelector(".spk");
+  const label = root.querySelector(".talk-label");
+  let state = "wait";
+  let active = false;
+  const setSpk = (on) => {
+    spk.classList.toggle("on", on);
+    spk.setAttribute("aria-pressed", String(on));
+    spk.innerHTML = on ? SPK_SVG : MUTE_SVG;
+  };
+  spk.addEventListener("click", () => setSpk(!!getView()?.toggleSound()));
+  const start = async (e) => {
+    if (mic.disabled || active || (e.button !== undefined && e.button !== 0)) return;
+    e.preventDefault();
+    active = true;
+    try {
+      mic.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    mic.classList.add("on");
+    label.textContent = "Spricht …";
+    navigator.vibrate?.(10);
+    try {
+      await getView()?.talkStart();
+      if (!active) getView()?.talkStop(); // released while the microphone was starting
+      else setSpk(true);
+    } catch (err) {
+      active = false;
+      mic.classList.remove("on");
+      label.textContent = err?.message || "Fehlgeschlagen";
+      setTimeout(() => !active && (label.textContent = TALK_TEXT[state]), 3000);
+    }
+  };
+  const stop = () => {
+    if (!active) return;
+    active = false;
+    getView()?.talkStop();
+    mic.classList.remove("on");
+    label.textContent = TALK_TEXT[state];
+  };
+  mic.addEventListener("pointerdown", start);
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) mic.addEventListener(ev, stop);
+  mic.addEventListener("contextmenu", (e) => e.preventDefault());
+  // Keyboard: hold Space/Enter
+  mic.addEventListener("keydown", (e) => (e.key === " " || e.key === "Enter") && !e.repeat && start(e));
+  mic.addEventListener("keyup", (e) => (e.key === " " || e.key === "Enter") && stop());
+  return {
+    onTalk(s) {
+      state = s;
+      wrap.hidden = false;
+      mic.disabled = s !== "ready";
+      if (!active) label.textContent = TALK_TEXT[s] || "";
+    },
+    reset() {
+      stop();
+      setSpk(false);
+      wrap.hidden = true;
+    },
+  };
 }
 
 /* --------------------------------------------------------------- controller */
@@ -728,6 +918,9 @@ class PortierOverlay extends HTMLElement {
       :host([data-compact]) .key .ring{inset:-7px;width:64px;height:64px}
       :host([data-compact]) .key svg.glyph{width:22px;height:22px}
       :host([data-compact]) .key-label{display:none}
+      :host([data-compact]) .talk-label{display:none}
+      :host([data-compact]) .mic{width:44px;height:44px}
+      :host([data-compact]) .spk{width:32px;height:32px;margin-bottom:6px}
       :host([data-compact]) .flash{top:44px;font-size:13px}
       @media (max-width:600px){:host{left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));width:auto}}
       @media (prefers-reduced-motion:reduce){:host{transition:none}.plate,.plate.leaving{animation:none}}
@@ -831,11 +1024,14 @@ class PortierOverlay extends HTMLElement {
         <div class="flash"></div>
         <div class="controls">
           <div class="status"></div>
+          ${talkMarkup()}
           ${keyMarkup(door.can_open)}
         </div>
         <div class="timeline"><i></i></div>
       </div>`;
-    const camera = new CameraView(door.camera, rootHass);
+    let camera = null;
+    const talk = wireTalk(el, () => camera);
+    camera = new CameraView(door.camera, rootHass, { talk: !!door.talk, onTalk: talk.onTalk });
     el.querySelector(".window").prepend(camera.el);
     camera.start();
     const v = { entryId: door.entry_id, el, camera, until: 0, total: 1, ringing: false };
@@ -894,10 +1090,10 @@ class PortierOverlay extends HTMLElement {
     const line = el.querySelector(".timeline");
     line.classList.toggle("opened", !!v.opened);
     line.firstElementChild.style.transform = `scaleX(${Math.max(0, Math.min(1, left / v.total))})`;
-    const secs = Math.ceil(left / 1000);
-    el.querySelector(".status").innerHTML = v.opened
-      ? `<b>Tür geöffnet</b><br>Bild schließt in ${secs} s`
-      : `${door.ring_count > 1 ? `${door.ring_count}× geklingelt` : "Livebild"}<br>Schließt in ${secs} s`;
+    // How long the picture stays is shown by the line at the bottom only.
+    const status = v.opened ? "<b>Tür geöffnet</b>" : door.ring_count > 1 ? `${door.ring_count}× geklingelt` : "";
+    const box = el.querySelector(".status");
+    if (box.innerHTML !== status) box.innerHTML = status;
   }
 
   /** Close a ring view because it was closed on another device. Manual views stay. */
@@ -1102,7 +1298,7 @@ class PortierEditor extends HTMLElement {
             <small>${cfg.telegram ? "Kommagetrennt. Nur diese Chats dürfen über den Knopf öffnen." : "Die Telegram-Bot-Integration ist in Home Assistant noch nicht eingerichtet."}</small></label>`}
           ${this.check("notify_allow_open", "„Tür öffnen“-Knopf in der Nachricht", v.notify_allow_open, "Jeder Knopf öffnet nur einmal. Am Handy ist die Entsperrung nötig.")}
           <div class="two">
-            ${this.num("action_window_minutes", "Knopf gültig für", v.action_window_minutes, "min", 1, 60)}
+            ${this.num("action_window_seconds", "Knopf gültig für", v.action_window_seconds, "s", 1, 120)}
             ${this.num("notify_cooldown", "Mindestabstand", v.notify_cooldown, "s", 0, 600, 1)}
           </div>
         </fieldset>
@@ -1118,6 +1314,7 @@ class PortierEditor extends HTMLElement {
             ${this.num("live_seconds", "Livebild offen lassen", v.live_seconds, "s", 5, 3600)}
             ${this.num("after_open_seconds", "Nach dem Öffnen noch", v.after_open_seconds, "s", 1, 3600)}
           </div>
+          ${this.check("talk", "Gegensprechen", v.talk, "Lautsprecher- und Sprechen-Knopf im Livebild. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https – sonst steht am Knopf, was fehlt.")}
         </fieldset>
         <details><summary>Türöffner & Gong</summary><div>
           ${this.select("pulse_mode", "Wer schaltet das Relais wieder aus?", v.pulse_mode, [
@@ -1221,7 +1418,7 @@ class PortierEditor extends HTMLElement {
         ? [...f.querySelectorAll("[name=telegram_chat]:checked")].map((c) => c.value).join(", ")
         : val("telegram_targets"),
       notify_allow_open: f.elements.notify_allow_open.checked,
-      action_window_minutes: num("action_window_minutes"),
+      action_window_seconds: num("action_window_seconds"),
       notify_cooldown: num("notify_cooldown"),
       sound: val("sound"),
       volume: num("volume"),
@@ -1231,6 +1428,7 @@ class PortierEditor extends HTMLElement {
       pulse_seconds: num("pulse_seconds"),
       gong_seconds: num("gong_seconds"),
       open_admin_only: f.elements.open_admin_only.checked,
+      talk: f.elements.talk.checked,
       trigger_edge: val("trigger_edge"),
       event_types: val("event_types"),
       debounce_seconds: num("debounce_seconds"),
@@ -1388,6 +1586,12 @@ class PortierPanel extends HTMLElement {
     this._hass = h;
     if (!this.cards.size && ctrl.doors.size) this.render();
     this.$("[data-act=add]").hidden = !h?.user?.is_admin;
+    // HA hands out a new camera key every few minutes and after a reconnect: load the
+    // still with it right away instead of keeping a picture that failed with the old one.
+    for (const [id, card] of this.cards) {
+      const door = ctrl.doors.get(id);
+      if (door && !this.live.has(id) && this.stillPic(door) !== card.stillPic) this.refreshStill(card, door, true);
+    }
   }
 
   set narrow(n) {
@@ -1406,10 +1610,20 @@ class PortierPanel extends HTMLElement {
     }
     this.render();
     this.ticker = setInterval(() => this.refresh(), 10000);
+    // Back from the background (HA rebuilds the page after 5 min hidden): fresh stills now.
+    this.onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      for (const [id, card] of this.cards) {
+        const door = ctrl.doors.get(id);
+        if (door && !this.live.has(id)) this.refreshStill(card, door, true);
+      }
+    };
+    document.addEventListener("visibilitychange", this.onVisible);
   }
 
   disconnectedCallback() {
     ctrl.listeners.delete(this.onMsg);
+    document.removeEventListener("visibilitychange", this.onVisible);
     clearInterval(this.ticker);
     for (const v of this.live.values()) v.destroy();
     this.live.clear();
@@ -1493,11 +1707,25 @@ class PortierPanel extends HTMLElement {
             <div class="meta"></div>
             <div class="actions"><button class="quiet" data-act="test">Testklingel</button></div>
           </div>
+          ${talkMarkup()}
           ${keyMarkup(door.can_open)}
         </div>
       </div>
       <details><summary>Klingelverlauf</summary><ol></ol></details>`;
     el.querySelector(".live-btn").addEventListener("click", () => this.toggleLive(door.entry_id, el));
+    // A still that failed (old camera key, connection just back): try again shortly
+    // with whatever key HA has by then, without waiting for the next refresh.
+    const still = el.querySelector(".still");
+    still.addEventListener("load", () => (el.stillFails = 0));
+    still.addEventListener("error", () => {
+      if (!still.getAttribute("src")) return;
+      el.stillFails = (el.stillFails || 0) + 1;
+      clearTimeout(el.stillRetry);
+      el.stillRetry = setTimeout(() => {
+        const d = ctrl.doors.get(door.entry_id);
+        if (d && el.isConnected && !this.live.has(door.entry_id)) this.refreshStill(el, d, true);
+      }, Math.min(2000 * 2 ** (el.stillFails - 1), 30000));
+    });
     const gear = el.querySelector("[data-act=edit]");
     gear.hidden = !this.isAdmin;
     gear.addEventListener("click", () => this.edit(door.entry_id));
@@ -1526,14 +1754,19 @@ class PortierPanel extends HTMLElement {
   toggleLive(entryId, el) {
     const btn = el.querySelector(".live-btn");
     const existing = this.live.get(entryId);
+    el.talk ??= wireTalk(el, () => this.live.get(entryId) || null);
     if (existing) {
+      el.talk.reset();
       existing.destroy();
       this.live.delete(entryId);
       btn.textContent = "Live ansehen";
       return;
     }
     const door = ctrl.doors.get(entryId);
-    const view = new CameraView(door.camera, () => this._hass || rootHass());
+    const view = new CameraView(door.camera, () => this._hass || rootHass(), {
+      talk: !!door.talk,
+      onTalk: el.talk.onTalk,
+    });
     const win = el.querySelector(".window");
     win.insertBefore(view.el, win.querySelector(".plate-head"));
     view.start();
@@ -1580,12 +1813,18 @@ class PortierPanel extends HTMLElement {
     live.hidden = !door.camera;
   }
 
-  refreshStill(card, door) {
+  stillPic(door) {
+    return (door.camera && (this._hass || rootHass())?.states[door.camera]?.attributes?.entity_picture) || "";
+  }
+
+  refreshStill(card, door, force = false) {
     const img = card.querySelector(".still");
-    const pic = door.camera && this._hass?.states[door.camera]?.attributes?.entity_picture;
+    const pic = this.stillPic(door);
+    card.stillPic = pic;
     if (pic) {
-      const src = `${pic}${pic.includes("?") ? "&" : "?"}t=${Math.floor(Date.now() / 10000)}`;
-      if (img.getAttribute("src") !== src) img.src = src;
+      const stamp = force ? Date.now() : Math.floor(Date.now() / 10000);
+      const src = `${pic}${pic.includes("?") ? "&" : "?"}t=${stamp}`;
+      if (force || img.getAttribute("src") !== src) img.src = src;
     } else {
       img.removeAttribute("src");
     }

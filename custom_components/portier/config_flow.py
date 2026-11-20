@@ -27,6 +27,7 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ACTION_WINDOW,
     CONF_ADMIN_ONLY,
+    CONF_TALK,
     CONF_AFTER_OPEN_SECONDS,
     CONF_CAMERA,
     CONF_CONTACT,
@@ -79,7 +80,7 @@ SECTIONS = {
         CONF_NOTIFY_COOLDOWN,
         CONF_ACTION_WINDOW,
     ),
-    SECTION_VIEW: (CONF_LIVE_SECONDS, CONF_AFTER_OPEN_SECONDS, CONF_SOUND, CONF_VOLUME),
+    SECTION_VIEW: (CONF_LIVE_SECONDS, CONF_AFTER_OPEN_SECONDS, CONF_SOUND, CONF_VOLUME, CONF_TALK),
 }
 
 
@@ -153,7 +154,7 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
         _opt(CONF_TELEGRAM_TARGETS, values): TextSelector(TextSelectorConfig()),
         _opt(CONF_NOTIFY_OPEN, values): BooleanSelector(),
         _opt(CONF_NOTIFY_COOLDOWN, values): _num(0, 600, 1, "s"),
-        _opt(CONF_ACTION_WINDOW, values): _num(1, 60, 1, "min"),
+        _opt(CONF_ACTION_WINDOW, values): _num(1, 120, 1, "s"),
     }
     view = {
         _opt(CONF_LIVE_SECONDS, values): _num(5, 3600, 1, "s"),
@@ -162,6 +163,7 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
             [SOUND_DINGDONG, SOUND_SOFT, SOUND_TRIPLE, SOUND_OFF], "sound"
         ),
         _opt(CONF_VOLUME, values): _num(0, 100, 5, "%"),
+        _opt(CONF_TALK, values): BooleanSelector(),
     }
     return {
         vol.Required(SECTION_NOTIFY): section(vol.Schema(notify), {"collapsed": False}),
@@ -239,11 +241,12 @@ PANEL_SCHEMA = vol.Schema(
         vol.Optional(CONF_TELEGRAM_TARGETS): vol.Any(None, str),
         vol.Optional(CONF_NOTIFY_OPEN): bool,
         vol.Optional(CONF_NOTIFY_COOLDOWN): vol.All(vol.Coerce(float), vol.Range(0, 600)),
-        vol.Optional(CONF_ACTION_WINDOW): vol.All(vol.Coerce(float), vol.Range(1, 60)),
+        vol.Optional(CONF_ACTION_WINDOW): vol.All(vol.Coerce(float), vol.Range(1, 120)),
         vol.Optional(CONF_LIVE_SECONDS): vol.All(vol.Coerce(int), vol.Range(5, 3600)),
         vol.Optional(CONF_AFTER_OPEN_SECONDS): vol.All(vol.Coerce(int), vol.Range(1, 3600)),
         vol.Optional(CONF_SOUND): vol.In([SOUND_DINGDONG, SOUND_SOFT, SOUND_TRIPLE, SOUND_OFF]),
         vol.Optional(CONF_VOLUME): vol.All(vol.Coerce(int), vol.Range(0, 100)),
+        vol.Optional(CONF_TALK): bool,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -269,6 +272,7 @@ class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
     """Create a door."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}

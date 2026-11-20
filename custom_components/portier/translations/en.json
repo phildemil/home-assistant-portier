@@ -67,13 +67,13 @@
               "telegram_targets": "Telegram chat IDs",
               "notify_allow_open": "\"Open door\" button in the message",
               "notify_cooldown": "Minimum time between messages",
-              "action_window_minutes": "Open button valid for"
+              "action_window_seconds": "Open button valid for (seconds)"
             },
             "data_description": {
               "notify_services": "Phones with the Home Assistant app (mobile_app_…) get a camera picture and buttons. Other services get text.",
               "telegram_targets": "Comma separated. Needs the Telegram bot integration. Sends a photo with an open button; only these chats may open.",
               "notify_allow_open": "Phones require unlocking. Each button works only once.",
-              "action_window_minutes": "Afterwards the button in old messages does nothing."
+              "action_window_seconds": "Counted from the notification. Afterwards the button does nothing and disappears from Telegram."
             }
           },
           "opener_options": {
@@ -105,7 +105,11 @@
               "live_seconds": "Keep live view open",
               "after_open_seconds": "Live view after opening",
               "sound": "Browser ring tone",
-              "volume": "Volume"
+              "volume": "Volume",
+              "talk": "Two-way audio (microphone)"
+            },
+            "data_description": {
+              "talk": "Shows a speaker and a push-to-talk button in the live view. Needs WebRTC (e.g. go2rtc), a camera that accepts audio, and Home Assistant over https."
             }
           }
         }

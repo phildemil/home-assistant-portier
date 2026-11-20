@@ -7,8 +7,16 @@ import secrets
 import time
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import CALLBACK_TYPE, Context, Event, HomeAssistant, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Context,
+    Event,
+    HomeAssistant,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.util import dt as dt_util
 
@@ -31,6 +39,13 @@ TELEGRAM_CALLBACK_EVENT = "telegram_callback"
 ACTION_PREFIX = "PORTIER_OPEN_"
 TELEGRAM_COMMAND = "/portier_open"
 
+VIA_TEXT = {
+    "app": "über Home Assistant",
+    "service": "über Home Assistant",
+    "button": "über Home Assistant",
+    "push": "über die App-Benachrichtigung",
+}
+
 
 def parse_telegram_targets(raw: str | None) -> list[int]:
     """Turn '123, -456' into [123, -456]; ignore garbage."""
@@ -50,19 +65,29 @@ class Notifier:
         self.door = door
         self._tokens: dict[str, float] = {}
         self._last_sent = 0.0
+        # Telegram messages whose "open" button is still live: (chat_id, message_id,
+        # is_photo, caption) -> cancel of the expiry timer.
+        self._tg_live: dict[tuple[int, int, bool, str], CALLBACK_TYPE] = {}
 
     # ------------------------------------------------------------------ listen
     def async_listen(self) -> list[CALLBACK_TYPE]:
         return [
             self.hass.bus.async_listen(MOBILE_ACTION_EVENT, self._on_mobile_action),
             self.hass.bus.async_listen(TELEGRAM_CALLBACK_EVENT, self._on_telegram_callback),
+            self._forget_telegram,
         ]
+
+    @callback
+    def _forget_telegram(self) -> None:
+        for cancel in self._tg_live.values():
+            cancel()
+        self._tg_live.clear()
 
     def _new_token(self) -> str:
         now = time.monotonic()
         self._tokens = {t: exp for t, exp in self._tokens.items() if exp > now}
         token = secrets.token_hex(6)
-        self._tokens[token] = now + 60 * float(self.door.opt(CONF_ACTION_WINDOW))
+        self._tokens[token] = now + float(self.door.opt(CONF_ACTION_WINDOW))
         return token
 
     def _consume(self, token: str) -> bool:
@@ -151,8 +176,7 @@ class Notifier:
         photo_url = self._camera_url()
         if photo_url:
             try:
-                await self._call(
-                    "telegram_bot",
+                response = await self._call_tg(
                     "send_photo",
                     {
                         "chat_id": targets,
@@ -162,15 +186,84 @@ class Notifier:
                         **keyboard,
                     },
                 )
-                return
             except (HomeAssistantError, ValueError, TimeoutError) as err:
                 _LOGGER.warning("Portier: Telegram-Foto fehlgeschlagen, sende Text: %s", err)
+            else:
+                if token:
+                    self._track_telegram(response, True, caption)
+                return
         try:
-            await self._call(
-                "telegram_bot", "send_message", {"chat_id": targets, "message": caption, **keyboard}
+            response = await self._call_tg(
+                "send_message", {"chat_id": targets, "message": caption, **keyboard}
             )
         except (HomeAssistantError, ValueError, TimeoutError) as err:
             _LOGGER.error("Portier: Telegram fehlgeschlagen: %s", err)
+            return
+        if token:
+            self._track_telegram(response, False, caption)
+
+    async def _call_tg(self, service: str, data: dict[str, Any]) -> Any:
+        """Call a telegram_bot send service, asking for the message ids if possible."""
+        wants = (
+            self.hass.services.supports_response("telegram_bot", service)
+            != SupportsResponse.NONE
+        )
+        return await self.hass.services.async_call(
+            "telegram_bot", service, data, blocking=True, return_response=wants
+        )
+
+    def _track_telegram(self, response: Any, is_photo: bool, caption: str) -> None:
+        """Remember sent messages so their button can be removed later."""
+        chats = response.get("chats") if isinstance(response, dict) else None
+        window = float(self.door.opt(CONF_ACTION_WINDOW))
+        for item in chats or []:
+            try:
+                key = (int(item["chat_id"]), int(item["message_id"]), is_photo, caption)
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            @callback
+            def _expired(_now: Any, key: tuple[int, int, bool, str] = key) -> None:
+                if self._tg_live.pop(key, None) is None:
+                    return
+                self.hass.async_create_task(
+                    self._edit_telegram(key, "⏱ Öffnen nicht mehr möglich")
+                )
+
+            self._tg_live[key] = async_call_later(self.hass, window, _expired)
+
+    @callback
+    def async_door_opened(self, via: str) -> None:
+        """The door was opened somehow: say so in every Telegram message still live."""
+        if not self._tg_live:
+            return
+        if via.startswith("telegram"):
+            who = via.partition("(")[2].rstrip(")") or "Telegram"
+            how = f"von {who} über Telegram"
+        else:
+            how = VIA_TEXT.get(via, f"über {via}")
+        note = f"✅ Tür geöffnet · {dt_util.now().strftime('%H:%M:%S')} · {how}"
+        live, self._tg_live = self._tg_live, {}
+        for key, cancel in live.items():
+            cancel()
+            self.hass.async_create_task(self._edit_telegram(key, note))
+
+    async def _edit_telegram(self, key: tuple[int, int, bool, str], note: str) -> None:
+        chat_id, message_id, is_photo, caption = key
+        text = f"{caption}\n{note}"
+        data: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "inline_keyboard": [],
+        }
+        if is_photo:
+            service, data["caption"] = "edit_caption", text
+        else:
+            service, data["message"] = "edit_message", text
+        try:
+            await self._call("telegram_bot", service, data)
+        except (HomeAssistantError, ValueError, TimeoutError) as err:
+            _LOGGER.debug("Portier: Telegram-Nachricht nicht geändert: %s", err)
 
     def _camera_url(self) -> str | None:
         """Short-lived, HA-internal snapshot URL for Telegram to download."""

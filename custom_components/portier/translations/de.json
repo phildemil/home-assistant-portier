@@ -67,13 +67,13 @@
               "telegram_targets": "Telegram-Chat-IDs",
               "notify_allow_open": "„Tür öffnen“-Knopf in der Nachricht",
               "notify_cooldown": "Mindestabstand zwischen Nachrichten",
-              "action_window_minutes": "Öffnen-Knopf gültig für"
+              "action_window_seconds": "Öffnen-Knopf gültig für (Sekunden)"
             },
             "data_description": {
               "notify_services": "Handys mit der Home-Assistant-App (mobile_app_…) bekommen Kamerabild und Knöpfe. Andere Dienste bekommen einen Text.",
               "telegram_targets": "Kommagetrennt. Benötigt die Telegram-Bot-Integration. Es kommt ein Foto mit Öffnen-Knopf; nur diese Chats dürfen öffnen.",
               "notify_allow_open": "Am Handy ist dafür die Entsperrung nötig. Jeder Knopf funktioniert nur einmal.",
-              "action_window_minutes": "Danach ist der Knopf in alten Nachrichten wirkungslos."
+              "action_window_seconds": "Ab der Benachrichtigung gezählt. Danach ist der Knopf wirkungslos und verschwindet aus Telegram."
             }
           },
           "opener_options": {
@@ -105,7 +105,11 @@
               "live_seconds": "Livebild offen lassen",
               "after_open_seconds": "Livebild nach dem Öffnen",
               "sound": "Klingelton im Browser",
-              "volume": "Lautstärke"
+              "volume": "Lautstärke",
+              "talk": "Gegensprechen (Mikrofon)"
+            },
+            "data_description": {
+              "talk": "Zeigt im Livebild einen Lautsprecher- und einen Sprechen-Knopf. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https."
             }
           }
         }
