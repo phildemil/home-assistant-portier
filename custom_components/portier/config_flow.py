@@ -68,6 +68,7 @@ from .const import (
     SOUND_TRIPLE,
     TRIGGER_DOMAINS,
 )
+from .frontend import loader_configured
 from .notifications import parse_telegram_targets
 
 DEVICE_KEYS = (CONF_TRIGGER, CONF_CAMERA, CONF_OPENER, CONF_CONTACT, CONF_GONG)
@@ -357,7 +358,13 @@ class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
             user_input = dict(user_input)
             _telegram_to_text(user_input)
             options = {**DEFAULTS, **self._data, **user_input}
-            return self.async_create_entry(title=self._data[CONF_NAME], data={}, options=options)
+            return self.async_create_entry(
+                title=self._data[CONF_NAME],
+                data={},
+                options=options,
+                # Usable right away; say plainly what is still missing for the live view.
+                description=None if loader_configured(self.hass) else "loader_pending",
+            )
         values = dict(DEFAULTS)
         fields = {
             _opt(CONF_NOTIFY, values): _select(

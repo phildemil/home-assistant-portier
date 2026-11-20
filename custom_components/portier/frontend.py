@@ -70,6 +70,10 @@ def _write_loader(path: Path) -> None:
         path.write_text(LOADER_JS, encoding="utf-8")
 
 
+ISSUE_MISSING = "loader_missing"
+ISSUE_RESTART = "loader_restart"
+
+
 def loader_configured(hass: HomeAssistant) -> bool:
     """True if configuration.yaml loads the Portier loader on every page."""
     manager = hass.data.get(frontend.DATA_EXTRA_MODULE_URL)
@@ -78,19 +82,40 @@ def loader_configured(hass: HomeAssistant) -> bool:
 
 @callback
 def _async_check_loader(hass: HomeAssistant) -> None:
-    """Show a repair notice while the loader is missing from configuration.yaml."""
-    if loader_configured(hass) or hass.data.get(_KEY, {}).get("yaml_written"):
-        ir.async_delete_issue(hass, DOMAIN, "loader_missing")
+    """Keep a repair notice until the loader really runs (line written AND restarted)."""
+    if loader_configured(hass):
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_MISSING)
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_RESTART)
+        return
+    if hass.data.get(_KEY, {}).get("yaml_written"):
+        # The line is in configuration.yaml but only counts after a restart.
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_MISSING)
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_RESTART,
+            is_fixable=True,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_RESTART,
+        )
         return
     ir.async_create_issue(
         hass,
         DOMAIN,
-        "loader_missing",
+        ISSUE_MISSING,
         is_fixable=True,
         severity=ir.IssueSeverity.WARNING,
-        translation_key="loader_missing",
+        translation_key=ISSUE_MISSING,
         translation_placeholders={"url": LOADER_URL},
     )
+
+
+@callback
+def async_loader_written(hass: HomeAssistant) -> None:
+    """The repair wrote the line: from now on only a restart is missing."""
+    hass.data.setdefault(_KEY, {})["yaml_written"] = True
+    _async_check_loader(hass)
 
 
 async def async_register_frontend(hass: HomeAssistant) -> None:

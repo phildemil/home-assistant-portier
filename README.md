@@ -18,7 +18,7 @@ Portier arbeitet mit dem, was du schon in Home Assistant hast:
 2. Home Assistant neu starten.
 3. **Einstellungen → Geräte & Dienste → Integration hinzufügen → Portier.**
 4. Klingeltaster wählen, dazu Kamera und Türöffner. Im zweiten Schritt die Handys und Telegram-Chats eintragen.
-5. **Einmalig:** Unter *Einstellungen → Reparaturen* erscheint „Portier von Anfang an laden“. Anklicken, **OK**, Home Assistant neu starten. Portier trägt dann selbst in die `configuration.yaml` ein:
+5. **Einmalig:** Die Tür funktioniert sofort. Damit das Livebild aber auch auf schon offenen Seiten und Apps erscheint, steht unter *Einstellungen → Reparaturen* ein Portier-Hinweis. Anklicken, zweimal **Absenden** – Portier trägt eine Zeile in die `configuration.yaml` ein und startet Home Assistant selbst neu. Der Hinweis bleibt stehen, bis das wirklich erledigt ist. Eingetragen wird:
 
    ```yaml
    frontend:

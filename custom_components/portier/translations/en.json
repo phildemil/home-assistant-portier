@@ -38,6 +38,9 @@
     "error": {
       "same_entity": "The opener cannot also be the doorbell button or chime.",
       "opener_in_use": "This opener already belongs to another door."
+    },
+    "create_entry": {
+      "loader_pending": "Door created – it works right away.\n\n**One step left:** under Settings → Repairs, confirm the \"Portier\" notice once. Portier then adds one line to `configuration.yaml` and restarts Home Assistant. Without it, the live view does not appear on pages and apps that were already open."
     }
   },
   "options": {
@@ -221,12 +224,23 @@
             "description": "So that the doorbell live view works on every tablet, browser and in the app right after each restart (e.g. after a power cut), Home Assistant must load Portier from the first second.\n\nPortier will add to your `configuration.yaml`:\n\n```yaml\nfrontend:\n  extra_module_url:\n    - {url}\n```\n\nA backup `configuration.yaml.portier-backup` is written first. The file is then checked; if it is not valid, the backup is restored."
           },
           "restart": {
-            "title": "Added – please restart",
-            "description": "The line is now in `configuration.yaml`. Restart Home Assistant (Settings → System → Restart) for it to take effect."
+            "title": "Added – restart now",
+            "description": "The line is now in `configuration.yaml`. It takes effect after a restart.\n\n**Submit restarts Home Assistant right away** (takes about a minute). Until then the live view does not reach pages and apps that were already open."
           }
         },
         "abort": {
           "cannot_edit": "Your `configuration.yaml` is structured in a way Portier cannot safely change automatically (e.g. `frontend:` via `!include`). Please add under `frontend:` by hand:\n\n```yaml\n  extra_module_url:\n    - {url}\n```\n\nThen restart Home Assistant."
+        }
+      }
+    },
+    "loader_restart": {
+      "title": "Portier: restart Home Assistant to finish",
+      "fix_flow": {
+        "step": {
+          "restart": {
+            "title": "Restart Home Assistant",
+            "description": "The loader is already in `configuration.yaml` but only takes effect after a restart. Until then the live view does not reach pages and apps that were already open.\n\n**Submit restarts Home Assistant right away.**"
+          }
         }
       }
     }

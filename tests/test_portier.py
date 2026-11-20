@@ -426,13 +426,39 @@ async def test_repair_flow_writes_yaml(hass: HomeAssistant, hass_client, tmp_pat
     r = await client.post("/api/repairs/issues/fix", json={"handler": "portier", "issue_id": "loader_missing"})
     flow = await r.json()
     assert flow["step_id"] == "confirm"
+    restarts = async_mock_service(hass, "homeassistant", "restart")
     r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
     flow = await r.json()
     assert flow["step_id"] == "restart"
     assert "/local/portier/loader.js" in cfg.read_text()
+    reg = ir.async_get(hass)
+    # Written, but not active yet: the notice changes to "restart", it does not vanish.
+    assert reg.async_get_issue("portier", "loader_missing") is None
+    assert reg.async_get_issue("portier", "loader_restart") is not None
     r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
     assert (await r.json())["type"] == "create_entry"
-    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is None
+    await hass.async_block_till_done()
+    assert len(restarts) == 1
+
+
+async def test_restart_notice_leads_straight_to_restart(hass: HomeAssistant, hass_client) -> None:
+    from homeassistant.components.repairs import DOMAIN as REPAIRS
+
+    from custom_components.portier.frontend import async_loader_written
+
+    await async_setup_component(hass, "http", {})
+    await async_setup_component(hass, REPAIRS, {})
+    await _setup(hass)
+    async_loader_written(hass)
+    restarts = async_mock_service(hass, "homeassistant", "restart")
+    client = await hass_client()
+    r = await client.post("/api/repairs/issues/fix", json={"handler": "portier", "issue_id": "loader_restart"})
+    flow = await r.json()
+    assert flow["step_id"] == "restart"
+    r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
+    assert (await r.json())["type"] == "create_entry"
+    await hass.async_block_till_done()
+    assert len(restarts) == 1
 
 
 async def test_talk_option(hass: HomeAssistant) -> None:
@@ -515,3 +541,5 @@ async def test_config_flow_telegram_picker(hass: HomeAssistant) -> None:
     )
     assert result["type"] == "create_entry"
     assert result["options"]["telegram_targets"] == "12345, -99"
+    # Loader not active yet: the finish dialog says what is still missing.
+    assert result["description"] == "loader_pending"
