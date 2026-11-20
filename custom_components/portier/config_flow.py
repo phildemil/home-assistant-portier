@@ -85,7 +85,7 @@ from .notifications import parse_telegram_targets
 DEVICE_KEYS = (CONF_TRIGGER, CONF_CAMERA, CONF_OPENER, CONF_CONTACT, CONF_GONG)
 SECTIONS = {
     SECTION_TRIGGER: (CONF_TRIGGER_EDGE, CONF_EVENT_TYPES, CONF_DEBOUNCE),
-    SECTION_OPENER: (CONF_PULSE_MODE, CONF_PULSE_SECONDS, CONF_GONG_SECONDS, CONF_ADMIN_ONLY),
+    SECTION_OPENER: (CONF_PULSE_MODE, CONF_PULSE_SECONDS, CONF_GONG_SECONDS),
     SECTION_NOTIFY: (
         CONF_NOTIFY,
         CONF_TELEGRAM_TARGETS,
@@ -94,7 +94,15 @@ SECTIONS = {
         CONF_ACTION_WINDOW,
     ),
     SECTION_VIEW: (CONF_LIVE_SECONDS, CONF_AFTER_OPEN_SECONDS, CONF_SOUND, CONF_VOLUME, CONF_TALK),
-    SECTION_NFC: (CONF_NFC_TAGS, CONF_NFC_DEVICES, CONF_NFC_FROM, CONF_NFC_UNTIL, CONF_NFC_NOTIFY),
+    # "Who may open": admins only, and opening by NFC tag.
+    SECTION_NFC: (
+        CONF_ADMIN_ONLY,
+        CONF_NFC_TAGS,
+        CONF_NFC_DEVICES,
+        CONF_NFC_FROM,
+        CONF_NFC_UNTIL,
+        CONF_NFC_NOTIFY,
+    ),
 }
 NFC_LISTS = (CONF_NFC_TAGS, CONF_NFC_DEVICES)
 
@@ -212,7 +220,6 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
         _opt(CONF_PULSE_MODE, values): _select([PULSE_PORTIER, PULSE_DEVICE], "pulse_mode"),
         _opt(CONF_PULSE_SECONDS, values): _num(0.1, 60, 0.1, "s"),
         _opt(CONF_GONG_SECONDS, values): _num(0.1, 30, 0.1, "s"),
-        _opt(CONF_ADMIN_ONLY, values): BooleanSelector(),
     }
     notify = {
         _opt(CONF_NOTIFY, values): _select(
@@ -233,6 +240,7 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
         _opt(CONF_TALK, values): BooleanSelector(),
     }
     nfc = {
+        _opt(CONF_ADMIN_ONLY, values): BooleanSelector(),
         _opt(CONF_NFC_TAGS, values): EntitySelector(
             EntitySelectorConfig(domain="tag", multiple=True)
         ),
@@ -245,10 +253,10 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
     }
     return {
         vol.Required(SECTION_NOTIFY): section(vol.Schema(notify), {"collapsed": False}),
+        vol.Required(SECTION_NFC): section(vol.Schema(nfc), {"collapsed": True}),
+        vol.Required(SECTION_VIEW): section(vol.Schema(view), {"collapsed": True}),
         vol.Required(SECTION_OPENER): section(vol.Schema(opener), {"collapsed": True}),
         vol.Required(SECTION_TRIGGER): section(vol.Schema(trigger), {"collapsed": True}),
-        vol.Required(SECTION_VIEW): section(vol.Schema(view), {"collapsed": True}),
-        vol.Required(SECTION_NFC): section(vol.Schema(nfc), {"collapsed": True}),
     }
 
 

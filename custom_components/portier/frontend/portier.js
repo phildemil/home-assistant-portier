@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.0";
+const VERSION = "1.9.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1190,6 +1190,9 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .editor details{border-top:1px solid var(--pt-edge);padding:12px 0}
 .editor details[open] summary{margin-bottom:14px}
 .editor details>div{display:grid;gap:14px}
+.editor .sub{margin:4px 0 -6px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--pt-muted)}
+.editor .sub-block{display:grid;gap:14px;padding:4px 0 0 14px;border-left:2px solid var(--pt-edge)}
+.editor .sub-block[hidden]{display:none}
 .editor summary{cursor:pointer;list-style:revert}
 .f{display:grid;gap:6px}
 .f>span{font-size:14px}
@@ -1247,8 +1250,8 @@ function notifyLabel(service, labels) {
 }
 
 class PortierEditor extends HTMLElement {
-  /** "Open by NFC tag": tick tags and allowed phones, optional time window. */
-  nfcMarkup(v, cfg) {
+  /** "Who may open": admins only, and opening by NFC tag behind a switch. */
+  accessMarkup(v, cfg) {
     const ticks = (name, items, chosen) =>
       items
         .map(
@@ -1262,7 +1265,10 @@ class PortierEditor extends HTMLElement {
     for (const id of v.nfc_devices || []) if (!phones.some((p) => p.value === id)) phones.push({ value: id, label: "Unbekanntes Handy" });
     const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
     const on = (v.nfc_tags || []).length > 0;
-    return `<details${on ? " open" : ""}><summary>Öffnen per NFC-Aufkleber</summary><div>
+    return `<fieldset><legend>Wer darf öffnen</legend>
+          ${this.check("open_admin_only", "Nur Administratoren dürfen öffnen", v.open_admin_only, "Sonst jeder angemeldete Benutzer, der die Kamera sehen darf, z. B. das Familien-Tablet.")}
+          ${this.check("nfc_on", "Öffnen per NFC-Aufkleber", on, "Handy mit der Home-Assistant-App an einen Aufkleber an der Tür halten – ohne Tippen. Praktisch für Kinder.")}
+          <div class="nfc-body sub-block"${on ? "" : " hidden"}>
           <div class="f" data-f="nfc_tags"><span>NFC-Aufkleber an der Tür</span>
             <div class="checks">${ticks("nfc_tags", tags, v.nfc_tags) || `<small>Noch kein Aufkleber bekannt. Das Handy mit der Home-Assistant-App einmal an den Aufkleber halten (oder unter Einstellungen → Tags einen anlegen), dann erscheint er hier.</small>`}</div>
             <small>Das Handy muss Home Assistant erreichen, z. B. über das WLAN an der Tür.</small></div>
@@ -1275,7 +1281,8 @@ class PortierEditor extends HTMLElement {
           </div>
           <small>Beide Zeiten leer = rund um die Uhr.</small>
           ${this.check("nfc_notify", "Nachricht, wenn jemand per NFC öffnet", v.nfc_notify, "Geht an die Push- und Telegram-Empfänger dieser Tür.")}
-        </div></details>`;
+          </div>
+        </fieldset>`;
   }
 
   async open({ hass, entryId }) {
@@ -1401,6 +1408,7 @@ class PortierEditor extends HTMLElement {
             ${this.num("notify_cooldown", "Mindestabstand", v.notify_cooldown, "s", 0, 600, 1)}
           </div>
         </fieldset>
+        ${this.accessMarkup(v, cfg)}
         <fieldset><legend>Livebild & Ton</legend>
           <div class="f" data-f="sound"><span>Klingelton im Browser</span>
             <div class="inline"><select name="sound">
@@ -1415,7 +1423,8 @@ class PortierEditor extends HTMLElement {
           </div>
           ${this.check("talk", "Gegensprechen", v.talk, "Lautsprecher- und Sprechen-Knopf im Livebild. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https – sonst steht am Knopf, was fehlt.")}
         </fieldset>
-        <details><summary>Türöffner & Gong</summary><div>
+        <details><summary>Feineinstellungen</summary><div>
+          <p class="sub">Türöffner & Gong</p>
           ${this.select("pulse_mode", "Wer schaltet das Relais wieder aus?", v.pulse_mode, [
             ["portier", "Portier, nach der Impulsdauer"],
             ["device", "Das Relais selbst (eigener Auto-Aus-Timer)"],
@@ -1424,10 +1433,7 @@ class PortierEditor extends HTMLElement {
             ${this.num("pulse_seconds", "Impuls Türöffner", v.pulse_seconds, "s", 0.1, 60, 0.1)}
             ${this.num("gong_seconds", "Impuls Gong", v.gong_seconds, "s", 0.1, 30, 0.1)}
           </div>
-          ${this.check("open_admin_only", "Nur Administratoren dürfen öffnen", v.open_admin_only)}
-        </div></details>
-        ${this.nfcMarkup(v, cfg)}
-        <details><summary>Klingeltaster genauer einstellen</summary><div>
+          <p class="sub">Klingeltaster</p>
           ${this.select("trigger_edge", "Auslösen bei", v.trigger_edge, [
             ["on", "Einschalten (Standard)"], ["off", "Ausschalten (invertierter Eingang)"], ["both", "Beides"],
           ])}
@@ -1468,6 +1474,9 @@ class PortierEditor extends HTMLElement {
         inp.focus();
       });
     });
+    // NFC fields only while the switch is on.
+    const nfcOn = q("[name=nfc_on]");
+    nfcOn?.addEventListener("change", () => (q(".nfc-body").hidden = !nfcOn.checked));
     // "All phones" covers every single phone: grey those out so nothing is sent twice.
     const allBox = q(`[name=notify_services][value=${ALL_PHONES}]`);
     const syncPhones = () => {
@@ -1543,7 +1552,7 @@ class PortierEditor extends HTMLElement {
       trigger_edge: val("trigger_edge"),
       event_types: val("event_types"),
       debounce_seconds: num("debounce_seconds"),
-      nfc_tags: [...f.querySelectorAll("[name=nfc_tags]:checked")].map((c) => c.value),
+      nfc_tags: f.elements.nfc_on.checked ? [...f.querySelectorAll("[name=nfc_tags]:checked")].map((c) => c.value) : [],
       nfc_devices: [...f.querySelectorAll("[name=nfc_devices]:checked")].map((c) => c.value),
       nfc_from: val("nfc_from") || null,
       nfc_until: val("nfc_until") || null,

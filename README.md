@@ -59,7 +59,7 @@ Wenn du bisher eigene Automationen für Push oder Telegram hast, deaktiviere sie
 Wer ein Handy mit der Home-Assistant-App hat, kann die Tür öffnen, indem er es an einen NFC-Aufkleber neben der Tür hält – ohne Tippen, praktisch für Kinder.
 
 1. Aufkleber anbringen und das Handy einmal dranhalten (oder unter *Einstellungen → Tags* anlegen). Home Assistant kennt ihn dann.
-2. Beim **Zahnrad** der Tür unter **„Öffnen per NFC-Aufkleber“** den Aufkleber und die **Handys, die öffnen dürfen**, ankreuzen. Andere Handys am Aufkleber bewirken nichts.
+2. Beim **Zahnrad** der Tür unter **„Wer darf öffnen“** den Schalter **„Öffnen per NFC-Aufkleber“** einschalten, dann den Aufkleber und die **Handys, die öffnen dürfen**, ankreuzen. Andere Handys am Aufkleber bewirken nichts.
 3. Optional: Zeitfenster (z. B. 07:00–20:00) und eine Nachricht an die Push- und Telegram-Empfänger, wenn jemand per NFC öffnet.
 
 Das Handy muss Home Assistant dabei erreichen – zu Hause also WLAN bis an die Tür, unterwegs ein Zugang von außen (z. B. Home Assistant Cloud). In der App unter *Begleit-App → Server* das Heim-WLAN eintragen. Jedes Öffnen steht im Türöffner-Verlauf.

@@ -81,27 +81,21 @@
               "action_window_seconds": "Counted from the notification. Afterwards the button does nothing and disappears from Telegram."
             }
           },
-          "opener_options": {
-            "name": "Opener & chime",
+          "nfc": {
+            "name": "Who may open",
             "data": {
-              "pulse_mode": "Who switches the relay off?",
-              "pulse_seconds": "Opener pulse length",
-              "gong_seconds": "Chime pulse length",
+              "nfc_tags": "NFC tags at the door",
+              "nfc_devices": "Phones that may open",
+              "nfc_from": "Allowed from",
+              "nfc_until": "Allowed until",
+              "nfc_notify": "Message when someone opens by NFC",
               "open_admin_only": "Only administrators may open"
             },
             "data_description": {
-              "pulse_mode": "Pick \"device\" only if the relay has its own auto-off timer (e.g. Shelly auto-off). That is the safest option."
-            }
-          },
-          "trigger_options": {
-            "name": "Doorbell button",
-            "data": {
-              "trigger_edge": "Trigger on",
-              "event_types": "Only these event types",
-              "debounce_seconds": "Debounce"
-            },
-            "data_description": {
-              "event_types": "Only for event entities, e.g. single_push. Empty = all."
+              "nfc_tags": "Hold the phone with the Home Assistant app to a tag once; it then appears here. The phone must reach Home Assistant (e.g. home Wi-Fi at the door).",
+              "nfc_devices": "Only these phones open the door. Other phones at the tag do nothing.",
+              "nfc_from": "Leave both times empty to allow it all day.",
+              "nfc_notify": "Goes to the push and Telegram receivers of this door."
             }
           },
           "live_view": {
@@ -117,20 +111,26 @@
               "talk": "Shows a speaker and a push-to-talk button in the live view. Needs WebRTC (e.g. go2rtc), a camera that accepts audio, and Home Assistant over https."
             }
           },
-          "nfc": {
-            "name": "Open by NFC tag",
+          "opener_options": {
+            "name": "Fine-tuning: door opener & gong",
             "data": {
-              "nfc_tags": "NFC tags at the door",
-              "nfc_devices": "Phones that may open",
-              "nfc_from": "Allowed from",
-              "nfc_until": "Allowed until",
-              "nfc_notify": "Message when someone opens by NFC"
+              "pulse_mode": "Who switches the relay off?",
+              "pulse_seconds": "Opener pulse length",
+              "gong_seconds": "Chime pulse length"
             },
             "data_description": {
-              "nfc_tags": "Hold the phone with the Home Assistant app to a tag once; it then appears here. The phone must reach Home Assistant (e.g. home Wi-Fi at the door).",
-              "nfc_devices": "Only these phones open the door. Other phones at the tag do nothing.",
-              "nfc_from": "Leave both times empty to allow it all day.",
-              "nfc_notify": "Goes to the push and Telegram receivers of this door."
+              "pulse_mode": "Pick \"device\" only if the relay has its own auto-off timer (e.g. Shelly auto-off). That is the safest option."
+            }
+          },
+          "trigger_options": {
+            "name": "Fine-tuning: doorbell button",
+            "data": {
+              "trigger_edge": "Trigger on",
+              "event_types": "Only these event types",
+              "debounce_seconds": "Debounce"
+            },
+            "data_description": {
+              "event_types": "Only for event entities, e.g. single_push. Empty = all."
             }
           }
         }

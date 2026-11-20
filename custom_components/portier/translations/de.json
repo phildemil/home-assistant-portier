@@ -81,27 +81,21 @@
               "action_window_seconds": "Ab der Benachrichtigung gezählt. Danach ist der Knopf wirkungslos und verschwindet aus Telegram."
             }
           },
-          "opener_options": {
-            "name": "Türöffner & Gong",
+          "nfc": {
+            "name": "Wer darf öffnen",
             "data": {
-              "pulse_mode": "Wer schaltet das Relais wieder aus?",
-              "pulse_seconds": "Impulsdauer Türöffner",
-              "gong_seconds": "Impulsdauer Gong",
+              "nfc_tags": "NFC-Aufkleber an der Tür",
+              "nfc_devices": "Handys, die öffnen dürfen",
+              "nfc_from": "Erlaubt ab",
+              "nfc_until": "Erlaubt bis",
+              "nfc_notify": "Nachricht, wenn jemand per NFC öffnet",
               "open_admin_only": "Nur Administratoren dürfen öffnen"
             },
             "data_description": {
-              "pulse_mode": "„Gerät“ nur wählen, wenn im Relais selbst ein Auto-Aus-Timer eingestellt ist (z. B. Shelly Auto-Off). Das ist die sicherste Variante."
-            }
-          },
-          "trigger_options": {
-            "name": "Klingeltaster",
-            "data": {
-              "trigger_edge": "Auslösen bei",
-              "event_types": "Nur diese Event-Typen",
-              "debounce_seconds": "Entprellung"
-            },
-            "data_description": {
-              "event_types": "Nur für Event-Entitäten, z. B. single_push. Leer = alle."
+              "nfc_tags": "Das Handy mit der Home-Assistant-App einmal an den Aufkleber halten, dann erscheint er hier. Das Handy muss Home Assistant erreichen (z. B. WLAN an der Tür).",
+              "nfc_devices": "Nur diese Handys öffnen die Tür. Andere Handys am Aufkleber bewirken nichts.",
+              "nfc_from": "Beide Zeiten leer lassen = rund um die Uhr.",
+              "nfc_notify": "Geht an die Push- und Telegram-Empfänger dieser Tür."
             }
           },
           "live_view": {
@@ -117,20 +111,26 @@
               "talk": "Zeigt im Livebild einen Lautsprecher- und einen Sprechen-Knopf. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https."
             }
           },
-          "nfc": {
-            "name": "Öffnen per NFC-Aufkleber",
+          "opener_options": {
+            "name": "Feineinstellungen: Türöffner & Gong",
             "data": {
-              "nfc_tags": "NFC-Aufkleber an der Tür",
-              "nfc_devices": "Handys, die öffnen dürfen",
-              "nfc_from": "Erlaubt ab",
-              "nfc_until": "Erlaubt bis",
-              "nfc_notify": "Nachricht, wenn jemand per NFC öffnet"
+              "pulse_mode": "Wer schaltet das Relais wieder aus?",
+              "pulse_seconds": "Impulsdauer Türöffner",
+              "gong_seconds": "Impulsdauer Gong"
             },
             "data_description": {
-              "nfc_tags": "Das Handy mit der Home-Assistant-App einmal an den Aufkleber halten, dann erscheint er hier. Das Handy muss Home Assistant erreichen (z. B. WLAN an der Tür).",
-              "nfc_devices": "Nur diese Handys öffnen die Tür. Andere Handys am Aufkleber bewirken nichts.",
-              "nfc_from": "Beide Zeiten leer lassen = rund um die Uhr.",
-              "nfc_notify": "Geht an die Push- und Telegram-Empfänger dieser Tür."
+              "pulse_mode": "„Gerät“ nur wählen, wenn im Relais selbst ein Auto-Aus-Timer eingestellt ist (z. B. Shelly Auto-Off). Das ist die sicherste Variante."
+            }
+          },
+          "trigger_options": {
+            "name": "Feineinstellungen: Klingeltaster",
+            "data": {
+              "trigger_edge": "Auslösen bei",
+              "event_types": "Nur diese Event-Typen",
+              "debounce_seconds": "Entprellung"
+            },
+            "data_description": {
+              "event_types": "Nur für Event-Entitäten, z. B. single_push. Leer = alle."
             }
           }
         }
