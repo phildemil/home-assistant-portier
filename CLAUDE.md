@@ -77,6 +77,5 @@ ab, bis Portier läuft, und importiert dann das Modul. Selbes Vorgehen wie card-
 - Echter Test: HA in einem venv mit `hass -c <config>`, Playwright für Overlay/Editor.
   Kritische Szenarien: Seite **während** des HA-Starts geladen, HA-Neustart bei offener Seite,
   mehrfaches Klingeln, zwei Geräte gleichzeitig (synchrones Schließen).
-- Benutzer-HA: 2026.11.x, erreichbar unter `http://192.168.0.242` (Port 80), Konfig über Samba
-  `\\homeassistant\config` (= Laufwerk Z:). Bei jeder Änderung `version` in `manifest.json` **und**
-  `VERSION` in `frontend/portier.js` erhöhen.
+- Benutzer-HA: 2026.11.x, Zugangsdaten und Pfade stehen in der lokalen Claude-Memory (nicht im Repo).
+- Bei jeder Änderung `version` in `manifest.json` **und** `VERSION` in `frontend/portier.js` erhöhen.
