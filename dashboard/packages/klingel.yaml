@@ -97,13 +97,13 @@ automation:
                 importance: high
                 priority: high
                 ttl: 0
-                clickAction: /dashboard-klingel/haustuer
+                clickAction: /dashboard-zuhause/uebersicht
                 actions:
                   - action: KLINGEL_OEFFNEN
                     title: Tür öffnen
                   - action: URI
                     title: Livebild
-                    uri: /dashboard-klingel/haustuer
+                    uri: /dashboard-zuhause/uebersicht
           # Telegram mit Foto und Knopf
           - action: telegram_bot.send_photo
             continue_on_error: true

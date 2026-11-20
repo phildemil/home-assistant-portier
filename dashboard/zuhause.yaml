@@ -1,0 +1,734 @@
+# Dashboard "Zuhause"
+# Einfügen: Dashboard öffnen -> Stift (Bearbeiten) -> ⋮ -> Raw-Konfigurationseditor
+# Platzhalter-Entitäten ersetzen (Liste im README).
+
+title: Zuhause
+views:
+  # ===================================================================
+  #  ÜBERSICHT – von allem ein bisschen
+  # ===================================================================
+  - title: Übersicht
+    path: uebersicht
+    icon: mdi:home-heart
+    type: sections
+    theme: Cosy
+    max_columns: 4
+    header:
+      layout: start
+      badges_position: bottom
+      card:
+        type: markdown
+        text_only: true
+        content: |-
+          {%- set h = now().hour -%}
+          {%- if h < 5 or h >= 23 %}{% set gruss = 'Gute Nacht' %}
+          {%- elif h < 11 %}{% set gruss = 'Guten Morgen' %}
+          {%- elif h < 17 %}{% set gruss = 'Schönen Tag' %}
+          {%- else %}{% set gruss = 'Guten Abend' %}{% endif -%}
+          # {{ gruss }}
+
+          {% if is_state('timer.klingel', 'active') -%}
+          🔔 **Es klingelt gerade an der Haustür.**
+          {%- else -%}
+          {%- set l = states('sensor.lichter_an') | int(0) -%}
+          {%- set f = states('sensor.dachfenster_offen') | int(0) -%}
+          {%- set t1 = 'Alle Lichter sind aus' if l == 0 else ('1 Licht brennt' if l == 1 else l ~ ' Lichter brennen') -%}
+          {%- set t2 = '' if f == 0 else (' · 1 Dachfenster ist offen' if f == 1 else ' · ' ~ f ~ ' Dachfenster sind offen') -%}
+          {{ t1 ~ t2 }}
+          {%- endif %}
+    badges:
+      - type: entity
+        entity: timer.klingel
+        name: Es klingelt
+        show_name: true
+        show_state: false
+        color: deep-orange
+        tap_action:
+          action: navigate
+          navigation_path: /dashboard-zuhause/klingel
+        visibility:
+          - condition: state
+            entity: timer.klingel
+            state: active
+      - type: entity
+        entity: weather.forecast_home
+        show_name: false
+        state_content:
+          - state
+          - temperature
+      - type: entity
+        entity: sensor.temperatur_innen
+        name: Innen
+        show_name: true
+        icon: mdi:home-thermometer-outline
+      - type: entity
+        entity: sensor.balkonkraftwerk_leistung
+        name: Solar
+        show_name: true
+        icon: mdi:solar-power-variant
+        color: amber
+      - type: entity
+        entity: sensor.akku_ladestand
+        name: Akku
+        show_name: true
+      - type: entity
+        entity: sensor.dachfenster_offen
+        name: Dachfenster offen
+        show_name: true
+        color: orange
+        tap_action:
+          action: navigate
+          navigation_path: /dashboard-zuhause/fenster
+        visibility:
+          - condition: numeric_state
+            entity: sensor.dachfenster_offen
+            above: 0
+    sections:
+      # --- Es klingelt: groß und live (nur während des Klingelns) -------
+      - type: grid
+        column_span: 2
+        visibility:
+          - condition: state
+            entity: timer.klingel
+            state: active
+        cards:
+          - type: heading
+            heading: Es klingelt
+            icon: mdi:bell-ring
+          - type: picture-entity
+            entity: camera.haustuer
+            camera_view: live
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+          - &oeffnen
+            type: tile
+            entity: script.klingel_tuer_oeffnen
+            name: Tür öffnen
+            icon: mdi:door-open
+            color: primary
+            hide_state: true
+            grid_options:
+              columns: full
+            tap_action:
+              action: perform-action
+              perform_action: script.klingel_tuer_oeffnen
+              confirmation:
+                text: Haustür jetzt öffnen?
+            icon_tap_action:
+              action: perform-action
+              perform_action: script.klingel_tuer_oeffnen
+              confirmation:
+                text: Haustür jetzt öffnen?
+
+      # --- Haustür: kompakt mit Standbild (sonst) -----------------------
+      - type: grid
+        visibility:
+          - condition: state
+            entity: timer.klingel
+            state_not: active
+        cards:
+          - type: heading
+            heading: Haustür
+            icon: mdi:door
+            tap_action:
+              action: navigate
+              navigation_path: /dashboard-zuhause/kameras
+          - type: picture-entity
+            entity: camera.haustuer
+            camera_view: auto
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+          - <<: *oeffnen
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: camera.garten
+            name: Garten
+            icon: mdi:cctv
+            hide_state: true
+            grid_options:
+              columns: 6
+            tap_action:
+              action: more-info
+
+      # --- Wetter -------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Wetter
+            icon: mdi:weather-partly-cloudy
+          - type: weather-forecast
+            entity: weather.forecast_home
+            name: Draußen
+            show_current: true
+            show_forecast: true
+            forecast_type: daily
+            grid_options:
+              columns: full
+          - type: markdown
+            grid_options:
+              columns: full
+            content: >-
+              <ha-alert alert-type="warning">Es regnet –
+              {{ states('sensor.dachfenster_offen') }} Dachfenster offen.</ha-alert>
+            visibility:
+              - condition: numeric_state
+                entity: sensor.dachfenster_offen
+                above: 0
+              - condition: state
+                entity: weather.forecast_home
+                state:
+                  - rainy
+                  - pouring
+                  - lightning-rainy
+                  - hail
+                  - snowy-rainy
+
+      # --- Licht --------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Licht
+            icon: mdi:lightbulb-outline
+            tap_action:
+              action: navigate
+              navigation_path: /dashboard-zuhause/licht
+            badges:
+              - type: entity
+                entity: sensor.lichter_an
+                show_state: true
+                show_icon: true
+                color: amber
+          - type: tile
+            entity: light.alle_lichter
+            name: Alle Lichter
+            icon: mdi:lightbulb-group
+            grid_options:
+              columns: full
+          - type: tile
+            entity: light.wohnzimmer_decke
+            name: Wohnzimmer
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: light.esstisch
+            name: Esstisch
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: light.kueche
+            name: Küche
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: light.flur
+            name: Flur
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: light.terrasse
+            name: Terrasse
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: switch.steckdose_tv
+            name: TV
+            icon: mdi:television
+            grid_options:
+              columns: 6
+
+      # --- Rollos & Dachfenster -----------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Rollos & Fenster
+            icon: mdi:blinds-horizontal
+            tap_action:
+              action: navigate
+              navigation_path: /dashboard-zuhause/fenster
+          - type: tile
+            entity: cover.alle_rollos
+            name: Alle Rollos
+            icon: mdi:blinds-horizontal
+            color: primary
+            features_position: inline
+            grid_options:
+              columns: full
+            features:
+              - type: cover-open-close
+          - type: tile
+            entity: cover.alle_dachfenster
+            name: Alle Dachfenster
+            icon: mdi:window-shutter-open
+            color: primary
+            features_position: inline
+            grid_options:
+              columns: full
+            features:
+              - type: cover-open-close
+
+      # --- Balkonkraftwerk ----------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Balkonkraftwerk
+            icon: mdi:solar-panel
+            tap_action:
+              action: navigate
+              navigation_path: /dashboard-zuhause/energie
+          - type: tile
+            entity: sensor.balkonkraftwerk_leistung
+            name: Solar jetzt
+            icon: mdi:solar-power-variant
+            color: amber
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.akku_ladestand
+            name: Akku
+            color: green
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.balkonkraftwerk_ertrag_heute
+            name: Heute
+            icon: mdi:white-balance-sunny
+            color: amber
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.akku_leistung
+            name: Akku jetzt
+            icon: mdi:battery-charging
+            color: green
+            grid_options:
+              columns: 6
+
+      # --- Raumklima ----------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Raumklima
+            icon: mdi:home-thermometer-outline
+          - type: tile
+            entity: sensor.temperatur_wohnzimmer
+            name: Wohnzimmer
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.temperatur_schlafzimmer
+            name: Schlafzimmer
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.temperatur_kinderzimmer
+            name: Kinderzimmer
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.temperatur_bad
+            name: Bad
+            grid_options:
+              columns: 6
+
+  # ===================================================================
+  #  LICHT – alle 15 Aktoren nach Räumen
+  # ===================================================================
+  - title: Licht
+    path: licht
+    icon: mdi:lightbulb-group-outline
+    type: sections
+    theme: Cosy
+    max_columns: 4
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Wohnen
+          - type: tile
+            entity: light.wohnzimmer_decke
+            name: Decke
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+          - type: tile
+            entity: light.wohnzimmer_stehlampe
+            name: Stehlampe
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+          - type: tile
+            entity: light.esstisch
+            name: Esstisch
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+          - type: tile
+            entity: switch.steckdose_tv
+            name: TV-Steckdose
+            icon: mdi:television
+            grid_options: {columns: full}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Küche
+          - type: tile
+            entity: light.kueche
+            name: Decke
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+          - type: tile
+            entity: light.kueche_unterbau
+            name: Unterbau
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+          - type: tile
+            entity: switch.kaffeemaschine
+            name: Kaffeemaschine
+            icon: mdi:coffee-maker-outline
+            grid_options: {columns: full}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Schlafen & Arbeiten
+          - type: tile
+            entity: light.schlafzimmer
+            name: Schlafzimmer
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+          - type: tile
+            entity: light.kinderzimmer
+            name: Kinderzimmer
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+          - type: tile
+            entity: light.buero
+            name: Büro
+            features: [{type: light-brightness}]
+            grid_options: {columns: full}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Flur & Bad
+          - type: tile
+            entity: light.flur
+            name: Flur
+            grid_options: {columns: full}
+          - type: tile
+            entity: light.bad
+            name: Bad
+            grid_options: {columns: full}
+          - type: heading
+            heading: Draußen
+          - type: tile
+            entity: light.terrasse
+            name: Terrasse
+            grid_options: {columns: full}
+          - type: tile
+            entity: light.garten
+            name: Garten
+            grid_options: {columns: full}
+          - type: tile
+            entity: switch.lichterkette
+            name: Lichterkette
+            icon: mdi:string-lights
+            grid_options: {columns: full}
+
+  # ===================================================================
+  #  ROLLOS & DACHFENSTER
+  # ===================================================================
+  - title: Rollos & Fenster
+    path: fenster
+    icon: mdi:blinds-horizontal
+    type: sections
+    theme: Cosy
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Rollos
+            icon: mdi:blinds-horizontal
+          - type: tile
+            entity: cover.alle_rollos
+            name: Alle
+            color: primary
+            features_position: inline
+            features: [{type: cover-open-close}]
+            grid_options: {columns: full}
+          - &rollo
+            type: tile
+            entity: cover.rollo_wohnzimmer
+            name: Wohnzimmer
+            color: primary
+            features_position: inline
+            features: [{type: cover-open-close}]
+            grid_options: {columns: full}
+          - {<<: *rollo, entity: cover.rollo_kueche, name: Küche}
+          - {<<: *rollo, entity: cover.rollo_schlafzimmer, name: Schlafzimmer}
+          - {<<: *rollo, entity: cover.rollo_kinderzimmer, name: Kinderzimmer}
+          - {<<: *rollo, entity: cover.rollo_buero, name: Büro}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Dachfenster
+            icon: mdi:window-shutter-open
+          - type: tile
+            entity: cover.alle_dachfenster
+            name: Alle
+            color: primary
+            features_position: inline
+            features: [{type: cover-open-close}]
+            grid_options: {columns: full}
+          - &dach
+            type: tile
+            entity: cover.dachfenster_bad
+            name: Bad
+            color: primary
+            features_position: inline
+            features: [{type: cover-open-close}]
+            grid_options: {columns: full}
+          - {<<: *dach, entity: cover.dachfenster_flur, name: Flur}
+          - {<<: *dach, entity: cover.dachfenster_schlafzimmer, name: Schlafzimmer}
+          - {<<: *dach, entity: cover.dachfenster_kinderzimmer, name: Kinderzimmer}
+          - {<<: *dach, entity: cover.dachfenster_buero, name: Büro}
+
+  # ===================================================================
+  #  KAMERAS
+  # ===================================================================
+  - title: Kameras
+    path: kameras
+    icon: mdi:cctv
+    type: sections
+    theme: Cosy
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Haustür
+          - type: picture-entity
+            entity: camera.haustuer
+            camera_view: live
+            show_state: false
+            show_name: false
+            aspect_ratio: "16:9"
+            grid_options: {columns: full}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Garten
+          - type: picture-entity
+            entity: camera.garten
+            camera_view: live
+            show_state: false
+            show_name: false
+            aspect_ratio: "16:9"
+            grid_options: {columns: full}
+
+  # ===================================================================
+  #  ENERGIE – Balkonkraftwerk mit Akku
+  # ===================================================================
+  - title: Energie
+    path: energie
+    icon: mdi:solar-power-variant
+    type: sections
+    theme: Cosy
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Jetzt
+          - type: tile
+            entity: sensor.balkonkraftwerk_leistung
+            name: Solar
+            icon: mdi:solar-power-variant
+            color: amber
+            grid_options: {columns: 6}
+          - type: tile
+            entity: sensor.akku_leistung
+            name: Akku jetzt
+            icon: mdi:battery-charging
+            color: green
+            grid_options: {columns: 6}
+          - type: gauge
+            entity: sensor.akku_ladestand
+            name: Akku
+            min: 0
+            max: 100
+            needle: false
+            severity:
+              red: 0
+              yellow: 20
+              green: 50
+            grid_options: {columns: 6, rows: 2}
+          - type: tile
+            entity: sensor.balkonkraftwerk_ertrag_heute
+            name: Ertrag heute
+            icon: mdi:white-balance-sunny
+            color: amber
+            vertical: true
+            grid_options: {columns: 6, rows: 2}
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Heute
+          - type: history-graph
+            hours_to_show: 24
+            grid_options: {columns: full}
+            entities:
+              - entity: sensor.balkonkraftwerk_leistung
+                name: Solar
+              - entity: sensor.akku_leistung
+                name: Akku
+          - type: history-graph
+            hours_to_show: 24
+            grid_options: {columns: full}
+            entities:
+              - entity: sensor.akku_ladestand
+                name: Akku-Ladestand
+
+  # ===================================================================
+  #  KLINGEL – Detailseite
+  # ===================================================================
+  - title: Klingel
+    path: klingel
+    icon: mdi:doorbell-video
+    type: sections
+    theme: Cosy
+    max_columns: 3
+    dense_section_placement: false
+    badges:
+      - type: entity
+        entity: timer.klingel
+        name: Es klingelt
+        show_name: true
+        show_state: false
+        show_icon: true
+        color: deep-orange
+        tap_action:
+          action: none
+        visibility:
+          - condition: state
+            entity: timer.klingel
+            state: active
+    sections:
+      # ---------------------------------------------------------------
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Haustür
+            heading_style: title
+            icon: mdi:door
+          # Beim Klingeln: Livebild
+          - type: picture-entity
+            entity: camera.haustuer
+            camera_view: live
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+            tap_action:
+              action: more-info
+            visibility:
+              - condition: state
+                entity: timer.klingel
+                state: active
+          # Sonst: ruhiges Standbild
+          - type: picture-entity
+            entity: camera.haustuer
+            camera_view: auto
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+            tap_action:
+              action: more-info
+            visibility:
+              - condition: state
+                entity: timer.klingel
+                state_not: active
+          - type: tile
+            entity: script.klingel_tuer_oeffnen
+            name: Tür öffnen
+            icon: mdi:door-open
+            color: primary
+            show_entity_picture: false
+            vertical: false
+            hide_state: true
+            grid_options:
+              columns: 6
+              rows: 1
+            tap_action:
+              action: perform-action
+              perform_action: script.klingel_tuer_oeffnen
+              confirmation:
+                text: Haustür jetzt öffnen?
+            icon_tap_action:
+              action: perform-action
+              perform_action: script.klingel_tuer_oeffnen
+              confirmation:
+                text: Haustür jetzt öffnen?
+          - type: tile
+            entity: camera.haustuer
+            name: Livebild groß
+            icon: mdi:cctv
+            color: amber
+            hide_state: true
+            grid_options:
+              columns: 6
+              rows: 1
+            tap_action:
+              action: more-info
+            icon_tap_action:
+              action: more-info
+
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Letzter Besuch
+            heading_style: title
+            icon: mdi:account-clock-outline
+          - type: picture-entity
+            entity: camera.klingel_letzter_besuch
+            show_name: false
+            show_state: false
+            aspect_ratio: "16:9"
+            grid_options:
+              columns: full
+            tap_action:
+              action: more-info
+          - type: markdown
+            text_only: true
+            grid_options:
+              columns: full
+            content: >-
+              {% set z = states('input_datetime.klingel_zuletzt') %}
+              {% if z in ['unknown', 'unavailable', ''] -%}
+              Noch niemand da gewesen.
+              {%- else -%}
+              {% set t = as_datetime(z) | as_local %}
+              {% set tage = (now().date() - t.date()).days %}
+              {% if tage == 0 %}Heute{% elif tage == 1 %}Gestern{% else %}Am {{ t.strftime('%d.%m.%Y') }}{% endif %}
+              um **{{ t.strftime('%H:%M') }}** Uhr
+              {%- endif %}
+          - type: heading
+            heading: Verlauf
+            heading_style: subtitle
+          - type: logbook
+            target:
+              entity_id:
+                - automation.klingel_es_klingelt
+                - script.klingel_tuer_oeffnen
+            hours_to_show: 48
+            grid_options:
+              columns: full

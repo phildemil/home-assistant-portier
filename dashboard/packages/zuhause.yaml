@@ -1,0 +1,72 @@
+# =====================================================================
+#  Zuhause – Gruppen und Zusammenfassungen für die Übersicht
+#  Ablage: /config/packages/zuhause.yaml
+#  Platzhalter durch deine Entitäten ersetzen (Liste im README).
+# =====================================================================
+
+light:
+  - platform: group
+    name: Alle Lichter
+    unique_id: zuhause_alle_lichter
+    entities:
+      - light.wohnzimmer_decke
+      - light.wohnzimmer_stehlampe
+      - light.esstisch
+      - light.kueche
+      - light.kueche_unterbau
+      - light.flur
+      - light.bad
+      - light.schlafzimmer
+      - light.kinderzimmer
+      - light.buero
+      - light.terrasse
+      - light.garten
+
+cover:
+  - platform: group
+    name: Alle Rollos
+    unique_id: zuhause_alle_rollos
+    entities:
+      - cover.rollo_wohnzimmer
+      - cover.rollo_kueche
+      - cover.rollo_schlafzimmer
+      - cover.rollo_kinderzimmer
+      - cover.rollo_buero
+  - platform: group
+    name: Alle Dachfenster
+    unique_id: zuhause_alle_dachfenster
+    entities:
+      - cover.dachfenster_bad
+      - cover.dachfenster_flur
+      - cover.dachfenster_schlafzimmer
+      - cover.dachfenster_kinderzimmer
+      - cover.dachfenster_buero
+
+template:
+  - sensor:
+      - name: Lichter an
+        unique_id: zuhause_lichter_an
+        icon: mdi:lightbulb-group
+        unit_of_measurement: ""
+        state: >-
+          {{ expand('light.alle_lichter') | selectattr('state', 'eq', 'on') | list | count }}
+      - name: Dachfenster offen
+        unique_id: zuhause_dachfenster_offen
+        icon: mdi:window-open-variant
+        unit_of_measurement: ""
+        state: >-
+          {{ expand('cover.alle_dachfenster') | selectattr('state', 'in', ['open', 'opening']) | list | count }}
+      - name: Temperatur innen
+        unique_id: zuhause_temperatur_innen
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        state: >-
+          {% set w = ['sensor.temperatur_wohnzimmer', 'sensor.temperatur_schlafzimmer',
+                      'sensor.temperatur_kinderzimmer', 'sensor.temperatur_bad']
+                     | map('states') | select('is_number') | map('float') | list %}
+          {{ (w | sum / w | count) | round(1) if w else none }}
+        availability: >-
+          {{ ['sensor.temperatur_wohnzimmer', 'sensor.temperatur_schlafzimmer',
+              'sensor.temperatur_kinderzimmer', 'sensor.temperatur_bad']
+             | map('states') | select('is_number') | list | count > 0 }}
