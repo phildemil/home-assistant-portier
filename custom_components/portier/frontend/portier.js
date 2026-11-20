@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.11.2";
+const VERSION = "1.11.3";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1708,7 +1708,6 @@ class PortierEditor extends HTMLElement {
     const data = this.collect();
     const local = {};
     if (!data.name) local.name = "Bitte einen Namen eingeben.";
-    if (!data.trigger_entity) local.trigger_entity = "Bitte den Klingeltaster auswählen.";
     for (const k of ["trigger_entity", "camera_entity", "opener_entity", "contact_entity", "gong_entity"]) {
       if (data[k] && !this.hass.states[data[k]]) local[k] = "Diese Entität gibt es nicht.";
     }
