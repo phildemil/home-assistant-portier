@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.6";
+const VERSION = "1.9.7";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -121,7 +121,7 @@ class Chime {
 /** Where a door opening came from, for the opener history. */
 const OPEN_VIA = {
   app: "Home Assistant",
-  push: "Handy-Benachrichtigung",
+  push: "Push-Nachricht",
   nfc: "NFC an der Tür",
   telegram: "Telegram",
   button: "Taste in Home Assistant",
@@ -1654,12 +1654,16 @@ class PortierPanel extends HTMLElement {
       details{border-top:1px solid var(--pt-edge);margin:0 18px;padding:10px 0 14px}
       summary{cursor:pointer;font-size:14px;color:var(--pt-muted)}
       /* time · way · name as aligned columns; names line up on the right in both lists */
-      ol{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:minmax(8.6em,max-content) minmax(0,1fr) minmax(6.5em,max-content);
+      ol{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:minmax(8.6em,max-content) minmax(0,13em) minmax(6.5em,max-content);justify-content:start;
         gap:4px 12px;font-size:14px;font-variant-numeric:tabular-nums}
       ol li{display:contents;color:var(--pt-ink)}
       ol li b{font-weight:600}
       ol li span{color:var(--pt-muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       ol li.empty span{grid-column:1/-1;white-space:normal}
+      @media (max-width:520px){
+        ol{grid-template-columns:max-content minmax(0,1fr) max-content;column-gap:10px}
+        ol li span{white-space:normal;overflow-wrap:break-word}
+      }
       details[hidden]{display:none}
       ${PICTURE_CSS}
       .live-btn{flex:none;border:0;border-radius:999px;padding:6px 12px;white-space:nowrap;
