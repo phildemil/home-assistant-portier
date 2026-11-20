@@ -43,6 +43,9 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - Kein Symbol ins Push-Bild malen: das Bild ist das reine Kamerabild; Android erlaubt
   anklickbare Knöpfe nur unter dem Bild.
 - Es darf **nie F5 nötig** sein – auch nicht nach HA-Neustart, Stromausfall oder Update.
+  Einzige Ausnahme: Seiten/Apps, die schon **vor** dem Anlegen der ersten Tür offen waren, einmal
+  neu laden (technisch nicht vermeidbar, steht im Fertig-Dialog).
+- Nach dem HACS-Neustart darf **kein zweiter Neustart** nötig sein.
 - Mehrere Livebilder: im Querformat nebeneinander, kleiner je mehr; hochkant untereinander.
 - Schließen eines **Klingel**-Overlays (×) schließt es auf allen Geräten; von Hand geöffnete
   Kameraansichten nur lokal. Ein altes × schließt nie ein neueres Klingeln.
@@ -57,11 +60,15 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - `notifications.py` – Push/Telegram, Einmal-Token, Telegram-Chat-Prüfung.
 - `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`,
   `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
-- `config_flow.py` – UI-Flows + `PANEL_SCHEMA`/`panel_options` für den Editor in der Seitenleiste.
+- `config_flow.py` – Einrichtung fragt nur den Namen (Fertig-Dialog verlinkt `/portier?edit=new`),
+  „Konfigurieren“ ist ein Abbruch mit Link `/portier?edit=<entry_id>`. Einziger Einstellort ist der
+  Editor in der Seitenleiste (`PANEL_SCHEMA`/`panel_options`). Alle Geräte sind optional.
 - `frontend.py` – Static Path `/portier_static` (ohne Cache-Header), Panel, `add_extra_js_url`,
-  Endpoint `/portier_static/current`, schreibt `config/www/portier/loader.js`, Repair-Hinweis.
-- `yaml_setup.py` + `repairs.py` – Repair mit Knopf trägt in `configuration.yaml` ein:
-  `frontend: extra_module_url: [/local/portier/loader.js]` (Backup + Validierung).
+  Endpoint `/portier_static/current`. `async_ensure_loader` (bei jeder Tür-Einrichtung) schreibt
+  `config/www/portier/loader.js` und trägt per `yaml_setup.py` in `configuration.yaml` ein:
+  `frontend: extra_module_url: [/local/portier/loader.js]` (Backup + Validierung) – automatisch,
+  ohne Neustart (jeder HA-Start liest die Zeile). Nur wenn das nicht sicher geht: Hinweis
+  `loader_missing` (ohne Knopf). Letzte Tür gelöscht → Zeile + Lader wieder entfernt.
 - `frontend/portier.js` – ein Modul: Controller (Abo, Wiederanmeldung bei `ready` und
   `component_loaded`, Selbst-Reload bei neuer Version), Overlay, Kamera (Standbild sofort, dann
   WebRTC über `camera/webrtc/offer`, sonst HLS, sonst MJPEG), Editor, Panel.
@@ -74,7 +81,7 @@ nicht nach. Dashboard-Ressourcen helfen nicht (die neue Übersicht lädt sie nic
 ab, bis Portier läuft, und importiert dann das Modul. Selbes Vorgehen wie card-mod.
 
 ## Testen
-- `pytest` mit `pytest-homeassistant-custom-component` (35 Tests in `tests/`). Lokal unter Windows:
+- `pytest` mit `pytest-homeassistant-custom-component` (Tests in `tests/`). Lokal unter Windows:
   `tools\run-tests.ps1` (legt `tools\.venv` mit Python 3.14 an; `tools\winshim` ersetzt die
   Linux-Module `fcntl`/`resource` und lockert die Socket-Sperre). Nach jeder Änderung laufen lassen.
 - GitHub Actions (`.github/workflows/tests.yml`): pytest, JS-Syntax + Versionsgleichheit

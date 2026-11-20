@@ -14,22 +14,24 @@ Portier arbeitet mit dem, was du schon in Home Assistant hast:
 
 ## Installation
 
-1. Den Ordner `custom_components/portier` nach `/config/custom_components/portier` kopieren (z. B. mit Samba oder dem File Editor).
-2. Home Assistant neu starten.
-3. **Einstellungen → Geräte & Dienste → Integration hinzufügen → Portier.**
-4. Klingeltaster wählen, dazu Kamera und Türöffner. Im zweiten Schritt die Handys und Telegram-Chats eintragen.
-5. **Einmalig:** Die Tür funktioniert sofort. Damit das Livebild aber auch auf schon offenen Seiten und Apps erscheint, steht unter *Einstellungen → Reparaturen* ein Portier-Hinweis. Anklicken, zweimal **Absenden** – Portier trägt eine Zeile in die `configuration.yaml` ein und startet Home Assistant selbst neu. Der Hinweis bleibt stehen, bis das wirklich erledigt ist. Eingetragen wird:
+1. Über HACS installieren (oder den Ordner `custom_components/portier` nach `/config/custom_components/portier` kopieren).
+2. Home Assistant neu starten. Das ist der einzige Neustart.
+3. **Einstellungen → Geräte & Dienste → Integration hinzufügen → Portier** und den Namen der Tür eingeben.
+4. Im Fertig-Dialog auf **Tür jetzt einrichten** tippen: Auf der Seite **Türklingel** in der Seitenleiste öffnet sich der Editor für Klingeltaster, Kamera, Türöffner, Benachrichtigungen usw. Alle Einstellungen liegen nur dort; *Konfigurieren* in Geräte & Dienste führt ebenfalls dorthin.
 
-   ```yaml
-   frontend:
-     extra_module_url:
-       - /local/portier/loader.js
-   ```
+Mit der ersten Tür trägt Portier selbst eine Zeile in die `configuration.yaml` ein (vorher wird `configuration.yaml.portier-backup` angelegt, danach wird die Datei geprüft):
 
-   Damit lädt HA Portier ab der ersten Sekunde auf jeder Seite, auch nach einem Stromausfall oder wenn die App sich neu verbindet. Vorher wird `configuration.yaml.portier-backup` angelegt. Ist die Datei ungewöhnlich aufgebaut (z. B. `frontend:` über `!include`), sagt Portier, was von Hand einzutragen ist.
-6. In der Seitenleiste erscheint **Türklingel**. Fertig – keine Automationen, keine Dashboard-Karten.
+```yaml
+frontend:
+  extra_module_url:
+    - /local/portier/loader.js
+```
 
-**Entfernen:** Wird die letzte Portier-Tür gelöscht, nimmt Portier die Zeile wieder aus der `configuration.yaml` (mit Sicherung) und löscht seinen Lader. Bei einer Neuinstallation erscheint der Reparatur-Hinweis dann wieder.
+Damit lädt HA Portier bei jedem Start ab der ersten Sekunde auf jeder Seite, auch nach einem Stromausfall oder wenn die App sich neu verbindet. Ein Neustart dafür ist nicht nötig: Die Zeile wird beim nächsten Start ohnehin gelesen. Ist die Datei ungewöhnlich aufgebaut (z. B. `frontend:` über `!include`), lässt Portier sie unverändert und sagt unter *Einstellungen → Reparaturen*, was von Hand einzutragen ist.
+
+**Einmalig beim Ersteinrichten:** Geräte, auf denen Home Assistant schon vor dem Anlegen der ersten Tür offen war (z. B. ein Wand-Tablet), die Seite einmal neu laden; die App einmal ganz schließen und wieder öffnen. Danach nie wieder. Push und Telegram funktionieren sofort.
+
+**Entfernen:** Wird die letzte Portier-Tür gelöscht, nimmt Portier die Zeile wieder aus der `configuration.yaml` (mit Sicherung) und löscht seinen Lader. Wird später wieder eine Tür angelegt, trägt Portier alles erneut ein.
 
 ## Türen verwalten
 
@@ -38,7 +40,7 @@ Alles geht direkt in der Seitenleiste **Türklingel** (als Administrator):
 - **+ Tür hinzufügen** oben rechts legt eine weitere Tür an.
 - Das **Zahnrad** an einer Tür öffnet alle Einstellungen: Geräte, Push und Telegram, Klingelton (mit „Anhören“), Lautstärke, Zeiten, Türöffner-Impuls. Unten lässt sich die Tür auch entfernen.
 
-Die Einstellungen unter *Geräte & Dienste → Portier* bleiben gleichwertig, beides ist immer auf demselben Stand.
+*Konfigurieren* unter *Geräte & Dienste → Portier* führt direkt zu diesem Editor – es gibt nur einen Ort für alle Einstellungen.
 
 ## Benachrichtigungen
 

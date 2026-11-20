@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.10.0";
+const VERSION = "1.11.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1838,6 +1838,7 @@ class PortierPanel extends HTMLElement {
     this._hass = h;
     if (!this.cards.size && ctrl.doors.size) this.render();
     this.$("[data-act=add]").hidden = !h?.user?.is_admin;
+    if (this.pendingEdit && ctrl.doors.size) this.applyPending();
     // HA hands out a new camera key every few minutes and after a reconnect: load the
     // still with it right away instead of keeping a picture that failed with the old one.
     for (const [id, card] of this.cards) {
@@ -1852,14 +1853,15 @@ class PortierPanel extends HTMLElement {
 
   connectedCallback() {
     ctrl.listeners.add(this.onMsg);
-    // Opened from a push notification (/portier?show=<entry_id>): show that door's live picture.
-    const params = new URLSearchParams(location.search);
-    if (params.has("show")) {
-      this.pendingShow = params.get("show");
-      params.delete("show");
-      const rest = params.toString();
-      history.replaceState(history.state, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
-    }
+    this.readParams();
+    // HA navigates inside the page (e.g. the link in the setup dialog) without rebuilding the panel.
+    this.onLocation = () => {
+      if (location.pathname.replace(/\/$/, "") !== "/portier") return;
+      this.readParams();
+      if (ctrl.doors.size) this.applyPending();
+    };
+    window.addEventListener("location-changed", this.onLocation);
+    window.addEventListener("popstate", this.onLocation);
     this.render();
     this.ticker = setInterval(() => this.refresh(), 10000);
     // Back from the background (HA rebuilds the page after 5 min hidden): fresh stills now.
@@ -1873,7 +1875,44 @@ class PortierPanel extends HTMLElement {
     document.addEventListener("visibilitychange", this.onVisible);
   }
 
+  /** /portier?show=<entry_id> (push notification) shows that door's live picture;
+   *  /portier?edit=<entry_id|new> (setup dialog, "Configure") opens the door editor. */
+  readParams() {
+    const params = new URLSearchParams(location.search);
+    let changed = false;
+    for (const key of ["show", "edit"]) {
+      if (!params.has(key)) continue;
+      this[key === "show" ? "pendingShow" : "pendingEdit"] = params.get(key);
+      params.delete(key);
+      changed = true;
+    }
+    if (changed) {
+      const rest = params.toString();
+      history.replaceState(history.state, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
+    }
+  }
+
+  applyPending() {
+    if (this.pendingShow && ctrl.doors.has(this.pendingShow)) {
+      const id = this.pendingShow;
+      this.pendingShow = null;
+      if (!ctrl.overlay?.views.has(id)) ctrl.show(id, { manual: true });
+    }
+    if (this.pendingEdit && this.isAdmin) {
+      const doors = [...ctrl.doors.values()];
+      // "new" = the door just added in the setup dialog: the newest one without any device yet.
+      const door =
+        this.pendingEdit === "new"
+          ? [...doors].reverse().find((d) => !d.camera && !d.opener && !d.contact) || doors.at(-1)
+          : ctrl.doors.get(this.pendingEdit);
+      this.pendingEdit = null;
+      if (door && !this.shadowRoot.querySelector("portier-editor")) this.edit(door.entry_id);
+    }
+  }
+
   disconnectedCallback() {
+    window.removeEventListener("location-changed", this.onLocation);
+    window.removeEventListener("popstate", this.onLocation);
     ctrl.listeners.delete(this.onMsg);
     document.removeEventListener("visibilitychange", this.onVisible);
     clearInterval(this.ticker);
@@ -1935,11 +1974,7 @@ class PortierPanel extends HTMLElement {
       this.fill(card, door);
     });
     this.renderSoundState();
-    if (this.pendingShow && ctrl.doors.has(this.pendingShow)) {
-      const id = this.pendingShow;
-      this.pendingShow = null;
-      if (!ctrl.overlay?.views.has(id)) ctrl.show(id, { manual: true });
-    }
+    this.applyPending();
   }
 
   buildCard(door) {

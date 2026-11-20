@@ -3,175 +3,23 @@
     "step": {
       "user": {
         "title": "Neue Tür",
-        "description": "Wähle aus, was du schon in Home Assistant hast. Nur der Klingeltaster ist Pflicht.",
+        "description": "Gib der Tür einen Namen. Alles andere – Klingeltaster, Kamera, Türöffner, Benachrichtigungen – richtest du danach auf der Seite **Türklingel** in der Seitenleiste ein.",
         "data": {
-          "name": "Name der Tür",
-          "trigger_entity": "Klingeltaster",
-          "camera_entity": "Kamera",
-          "opener_entity": "Türöffner",
-          "contact_entity": "Türkontakt",
-          "gong_entity": "Gong / Klingel-Relais"
-        },
-        "data_description": {
-          "trigger_entity": "Was beim Klingeln auslöst: Binärsensor, Event-Entität (z. B. Shelly-Eingang), Taste, Schalter oder Helfer.",
-          "camera_entity": "Jede Kamera, die in Home Assistant läuft.",
-          "opener_entity": "Jedes Relais (Schalter, Licht, Helfer) bekommt einen Impuls. Schloss = öffnen, Taste = drücken, Skript = ausführen, Tor = öffnen.",
-          "contact_entity": "Zeigt an, ob die Tür offen ist.",
-          "gong_entity": "Ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
-        }
-      },
-      "notify": {
-        "title": "Benachrichtigungen",
-        "description": "Wohin soll eine Nachricht gehen, wenn es klingelt? Kann leer bleiben und später geändert werden.",
-        "data": {
-          "notify_services": "Push-Benachrichtigungen",
-          "telegram_targets": "Telegram-Empfänger",
-          "notify_allow_open": "„Tür öffnen“-Knopf in der Nachricht"
-        },
-        "data_description": {
-          "notify_services": "Handys mit der Home-Assistant-App (mobile_app_…) bekommen Kamerabild und Knöpfe. Andere Dienste bekommen einen Text.",
-          "telegram_targets": "Chats ankreuzen, die in der Telegram-Bot-Integration erlaubt sind (andere Chat-IDs lassen sich eintippen). Es kommt ein Foto mit Öffnen-Knopf; nur diese Chats dürfen öffnen.",
-          "notify_allow_open": "Am Handy ist dafür die Entsperrung nötig. Jeder Knopf funktioniert nur einmal."
+          "name": "Name der Tür"
         }
       }
     },
     "error": {
-      "same_entity": "Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
-      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür.",
-      "nfc_needs_phone": "Bitte mindestens ein Handy auswählen, das mit dem Aufkleber öffnen darf.",
-      "nfc_needs_opener": "Öffnen per NFC braucht einen Türöffner."
+      "name_missing": "Bitte einen Namen eingeben."
     },
     "create_entry": {
-      "loader_pending": "Tür angelegt – sie funktioniert sofort.\n\n**Ein Schritt fehlt noch:** Unter Einstellungen → Reparaturen einmal den Hinweis „Portier“ bestätigen. Portier trägt dann eine Zeile in die `configuration.yaml` ein und startet Home Assistant neu. Ohne das erscheint das Livebild nicht auf Seiten und Apps, die schon offen waren."
+      "first_door": "Tür angelegt.\n\n**Weiter:** [Tür jetzt einrichten]({url}) – Klingeltaster, Kamera, Türöffner und Benachrichtigungen stellst du auf der Seite **Türklingel** in der Seitenleiste ein.\n\nSonst ist nichts nötig, auch kein Neustart. Nur Geräte, auf denen Home Assistant schon vorher offen war (z. B. ein Wand-Tablet), die Seite einmal neu laden; die App einmal ganz schließen und wieder öffnen.",
+      "door_added": "Tür angelegt.\n\n**Weiter:** [Tür jetzt einrichten]({url}) auf der Seite **Türklingel** in der Seitenleiste."
     }
   },
   "options": {
-    "step": {
-      "init": {
-        "title": "Tür bearbeiten",
-        "data": {
-          "name": "Name der Tür",
-          "trigger_entity": "Klingeltaster",
-          "camera_entity": "Kamera",
-          "opener_entity": "Türöffner",
-          "contact_entity": "Türkontakt",
-          "gong_entity": "Gong / Klingel-Relais"
-        },
-        "data_description": {
-          "trigger_entity": "Was beim Klingeln auslöst: Binärsensor, Event-Entität (z. B. Shelly-Eingang), Taste, Schalter oder Helfer.",
-          "camera_entity": "Jede Kamera, die in Home Assistant läuft.",
-          "opener_entity": "Jedes Relais (Schalter, Licht, Helfer) bekommt einen Impuls. Schloss = öffnen, Taste = drücken, Skript = ausführen, Tor = öffnen.",
-          "contact_entity": "Zeigt an, ob die Tür offen ist.",
-          "gong_entity": "Ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
-        },
-        "sections": {
-          "notifications": {
-            "name": "Benachrichtigungen",
-            "data": {
-              "notify_services": "Push-Benachrichtigungen",
-              "telegram_targets": "Telegram-Empfänger",
-              "notify_allow_open": "„Tür öffnen“-Knopf in der Nachricht",
-              "notify_cooldown": "Mindestabstand zwischen Nachrichten",
-              "action_window_seconds": "Öffnen-Knopf gültig für (Sekunden)"
-            },
-            "data_description": {
-              "notify_services": "Handys mit der Home-Assistant-App (mobile_app_…) bekommen Kamerabild und Knöpfe. Andere Dienste bekommen einen Text.",
-              "telegram_targets": "Chats ankreuzen, die in der Telegram-Bot-Integration erlaubt sind (andere Chat-IDs lassen sich eintippen). Es kommt ein Foto mit Öffnen-Knopf; nur diese Chats dürfen öffnen.",
-              "notify_allow_open": "Am Handy ist dafür die Entsperrung nötig. Jeder Knopf funktioniert nur einmal.",
-              "action_window_seconds": "Ab der Benachrichtigung gezählt. Danach ist der Knopf wirkungslos und verschwindet aus Telegram."
-            }
-          },
-          "nfc": {
-            "name": "Wer darf öffnen",
-            "data": {
-              "nfc_tags": "NFC-Aufkleber an der Tür",
-              "nfc_devices": "Handys, die öffnen dürfen",
-              "nfc_from": "Erlaubt ab",
-              "nfc_until": "Erlaubt bis",
-              "nfc_notify": "Nachricht, wenn jemand per NFC öffnet",
-              "open_admin_only": "Nur Administratoren dürfen öffnen"
-            },
-            "data_description": {
-              "nfc_tags": "Das Handy mit der Home-Assistant-App einmal an den Aufkleber halten, dann erscheint er hier. Das Handy muss Home Assistant erreichen (z. B. WLAN an der Tür).",
-              "nfc_devices": "Nur diese Handys öffnen die Tür. Andere Handys am Aufkleber bewirken nichts.",
-              "nfc_from": "Beide Zeiten leer lassen = rund um die Uhr.",
-              "nfc_notify": "Geht an die Push- und Telegram-Empfänger dieser Tür."
-            }
-          },
-          "live_view": {
-            "name": "Livebild & Ton",
-            "data": {
-              "live_seconds": "Livebild offen lassen",
-              "after_open_seconds": "Livebild nach dem Öffnen",
-              "sound": "Klingelton im Browser",
-              "volume": "Lautstärke",
-              "talk": "Gegensprechen (Mikrofon)"
-            },
-            "data_description": {
-              "talk": "Zeigt im Livebild einen Lautsprecher- und einen Sprechen-Knopf. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https."
-            }
-          },
-          "opener_options": {
-            "name": "Feineinstellungen: Türöffner & Gong",
-            "data": {
-              "pulse_mode": "Wer schaltet das Relais wieder aus?",
-              "pulse_seconds": "Impulsdauer Türöffner",
-              "gong_seconds": "Impulsdauer Gong"
-            },
-            "data_description": {
-              "pulse_mode": "„Gerät“ nur wählen, wenn im Relais selbst ein Auto-Aus-Timer eingestellt ist (z. B. Shelly Auto-Off). Das ist die sicherste Variante."
-            }
-          },
-          "trigger_options": {
-            "name": "Feineinstellungen: Klingeltaster",
-            "data": {
-              "trigger_edge": "Auslösen bei",
-              "event_types": "Nur diese Event-Typen",
-              "debounce_seconds": "Entprellung"
-            },
-            "data_description": {
-              "event_types": "Nur für Event-Entitäten, z. B. single_push. Leer = alle."
-            }
-          }
-        }
-      }
-    },
-    "error": {
-      "same_entity": "Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
-      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür.",
-      "nfc_needs_phone": "Bitte mindestens ein Handy auswählen, das mit dem Aufkleber öffnen darf.",
-      "nfc_needs_opener": "Öffnen per NFC braucht einen Türöffner."
-    }
-  },
-  "selector": {
-    "edge": {
-      "options": {
-        "on": "Einschalten (Standard)",
-        "off": "Ausschalten (invertierter Eingang)",
-        "both": "Beides"
-      }
-    },
-    "pulse_mode": {
-      "options": {
-        "portier": "Portier schaltet nach der Impulsdauer aus",
-        "device": "Gerät (eigener Auto-Aus-Timer)"
-      }
-    },
-    "sound": {
-      "options": {
-        "dingdong": "Ding-Dong",
-        "soft": "Sanft",
-        "triple": "Dreiklang",
-        "off": "Aus"
-      }
-    },
-    "notify": {
-      "options": {
-        "all_mobile_apps": "Alle Handys mit der App (auch neue)"
-      }
-    },
-    "event_types": {
-      "options": {}
+    "abort": {
+      "use_panel": "Alle Einstellungen dieser Tür findest du auf der Seite **Türklingel** in der Seitenleiste.\n\n[Tür bearbeiten]({url})"
     }
   },
   "entity": {
@@ -238,33 +86,8 @@
   },
   "issues": {
     "loader_missing": {
-      "title": "Portier: eine Zeile in configuration.yaml fehlt",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Portier von Anfang an laden",
-            "description": "Damit das Klingel-Livebild nach jedem Neustart (z. B. nach einem Stromausfall) sofort auf allen Tablets, Browsern und in der App funktioniert, muss Home Assistant Portier ab der ersten Sekunde laden.\n\nPortier trägt dazu in deiner `configuration.yaml` ein:\n\n```yaml\nfrontend:\n  extra_module_url:\n    - {url}\n```\n\nVorher wird eine Sicherung `configuration.yaml.portier-backup` angelegt. Danach wird geprüft, ob die Datei gültig ist – sonst wird die Sicherung zurückgespielt."
-          },
-          "restart": {
-            "title": "Eingetragen – jetzt neu starten",
-            "description": "Die Zeile steht jetzt in der `configuration.yaml`. Sie wirkt erst nach einem Neustart.\n\n**Mit „Absenden“ startet Home Assistant sofort neu** (dauert etwa eine Minute). Bis dahin erscheint das Livebild nicht auf Seiten und Apps, die schon offen waren."
-          }
-        },
-        "abort": {
-          "cannot_edit": "Deine `configuration.yaml` ist so aufgebaut, dass Portier sie nicht sicher automatisch ändern kann (z. B. `frontend:` über `!include`). Bitte trage unter `frontend:` von Hand ein:\n\n```yaml\n  extra_module_url:\n    - {url}\n```\n\nDanach Home Assistant neu starten."
-        }
-      }
-    },
-    "loader_restart": {
-      "title": "Portier: Home Assistant neu starten, um fertig zu werden",
-      "fix_flow": {
-        "step": {
-          "restart": {
-            "title": "Home Assistant neu starten",
-            "description": "Der Lader steht schon in der `configuration.yaml`, wirkt aber erst nach einem Neustart. Bis dahin erscheint das Livebild nicht auf Seiten und Apps, die schon offen waren.\n\n**Mit „Absenden“ startet Home Assistant sofort neu.**"
-          }
-        }
-      }
+      "title": "Portier: bitte eine Zeile in configuration.yaml eintragen",
+      "description": "Portier konnte deine `configuration.yaml` nicht sicher ändern (z. B. kommt `frontend:` per `!include`). Ohne diese Zeile erscheint das Livebild nicht auf Seiten, die geöffnet werden, während Home Assistant startet (z. B. nach einem Stromausfall).\n\nBitte unter `frontend:` von Hand eintragen:\n\n```yaml\nfrontend:\n  extra_module_url:\n    - {url}\n```\n\nDas gilt ab dem nächsten Start von Home Assistant."
     }
   }
 }

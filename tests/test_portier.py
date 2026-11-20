@@ -12,6 +12,8 @@ from pytest_homeassistant_custom_component.common import (
     async_mock_service,
 )
 
+import pytest
+
 from custom_components.portier.const import DEFAULTS, DOMAIN
 
 BASE = {
@@ -25,6 +27,18 @@ BASE = {
     "debounce_seconds": 2.0,
     "pulse_seconds": 3.0,
 }
+
+
+@pytest.fixture(autouse=True)
+def config_yaml(hass: HomeAssistant, tmp_path, monkeypatch):
+    """Every test gets its own configuration.yaml (Portier writes its loader line there)."""
+    cfg = tmp_path / "configuration.yaml"
+    cfg.write_text("default_config:\n")
+    real_path = hass.config.path
+    monkeypatch.setattr(
+        hass.config, "path", lambda *p: str(cfg) if p == ("configuration.yaml",) else real_path(*p)
+    )
+    return cfg
 
 
 async def _setup(hass: HomeAssistant, **options):
@@ -46,40 +60,33 @@ async def _press(hass):
 
 
 async def test_config_flow(hass: HomeAssistant) -> None:
-    hass.states.async_set("binary_sensor.klingel", "off")
+    """Adding a door only asks for the name; everything else lives in the side panel."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     assert result["type"] == "form"
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"name": "Haustür", "trigger_entity": "binary_sensor.klingel"},
-    )
-    assert result["step_id"] == "notify"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert [str(k) for k in result["data_schema"].schema] == ["name"]
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "  "})
+    assert result["errors"] == {"name": "name_missing"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "Haustür"})
     assert result["type"] == "create_entry"
-    assert result["options"]["trigger_entity"] == "binary_sensor.klingel"
+    assert result["options"]["trigger_entity"] is None
     assert result["options"]["opener_entity"] is None
+    assert result["options"]["sound"] == DEFAULTS["sound"]
+    # First door: the dialog links to the editor and mentions reloading open devices.
+    assert result["description"] == "first_door"
+    assert result["description_placeholders"]["url"] == "/portier?edit=new"
     await hass.async_block_till_done()
     entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.state is ConfigEntryState.LOADED
 
-    # Options flow with sections round-trips
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "Garten"})
+    assert result["description"] == "door_added"
+    await hass.async_block_till_done()
+
+    # "Configure" in Devices & services points to the side panel editor of this door.
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] == "form"
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "name": "Vorne",
-            "trigger_entity": "binary_sensor.klingel",
-            "notifications": {"notify_cooldown": 10},
-            "opener_options": {},
-            "trigger_options": {},
-            "live_view": {"live_seconds": 90},
-            "nfc": {},
-        },
-    )
-    assert result["type"] == "create_entry"
-    assert entry.options["live_seconds"] == 90
-    assert entry.options["notify_cooldown"] == 10
-    assert entry.title == "Vorne"
+    assert result["type"] == "abort" and result["reason"] == "use_panel"
+    assert result["description_placeholders"]["url"] == f"/portier?edit={entry.entry_id}"
 
 
 async def test_ring_edge_debounce_and_entities(hass: HomeAssistant) -> None:
@@ -398,11 +405,9 @@ async def test_dismiss_closes_ring_everywhere(hass: HomeAssistant, hass_ws_clien
     assert got_b == {"type": "dismiss", "entry_id": entry.entry_id, "ring_time": ring_time}
 
 
-async def test_loader_file_endpoint_and_repair(hass: HomeAssistant, hass_client) -> None:
+async def test_loader_written_with_first_door(hass: HomeAssistant, hass_client, config_yaml) -> None:
     from pathlib import Path
     from homeassistant.helpers import issue_registry as ir
-    from homeassistant.components import frontend
-    from custom_components.portier.frontend import LOADER_URL, _async_check_loader
 
     await async_setup_component(hass, "http", {})
     await _setup(hass)
@@ -412,64 +417,32 @@ async def test_loader_file_endpoint_and_repair(hass: HomeAssistant, hass_client)
     r = await client.get("/portier_static/current")
     assert r.status == 200
     assert (await r.json())["url"].startswith("/portier_static/portier.js?v=")
-    # without the YAML line a repair notice is shown ...
-    reg = ir.async_get(hass)
-    assert reg.async_get_issue("portier", "loader_missing") is not None
-    # ... and it disappears once the loader is configured
-    frontend.add_extra_js_url(hass, LOADER_URL)
-    _async_check_loader(hass)
-    assert reg.async_get_issue("portier", "loader_missing") is None
+    # The line is in configuration.yaml right away, with a backup, and no notice or restart.
+    text = config_yaml.read_text()
+    assert "default_config:" in text and "/local/portier/loader.js" in text
+    assert (config_yaml.parent / "configuration.yaml.portier-backup").exists()
+    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is None
+    # A second door does not touch the file again.
+    before = config_yaml.stat().st_mtime_ns
+    second = MockConfigEntry(domain=DOMAIN, title="Garten", options={**BASE, "name": "Garten", "opener_entity": None})
+    second.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+    assert config_yaml.stat().st_mtime_ns == before
+    assert config_yaml.read_text().count("/local/portier/loader.js") == 1
 
 
-async def test_repair_flow_writes_yaml(hass: HomeAssistant, hass_client, tmp_path, monkeypatch) -> None:
-    from homeassistant.components.repairs import DOMAIN as REPAIRS
+async def test_loader_notice_when_yaml_cannot_be_changed(hass: HomeAssistant, config_yaml) -> None:
     from homeassistant.helpers import issue_registry as ir
 
-    cfg = tmp_path / "configuration.yaml"
-    cfg.write_text("default_config:\n")
-    real_path = hass.config.path
-    monkeypatch.setattr(hass.config, "path", lambda *p: str(cfg) if p == ("configuration.yaml",) else real_path(*p))
-    await async_setup_component(hass, "http", {})
-    await async_setup_component(hass, REPAIRS, {})
+    original = "default_config:\nfrontend: !include frontend.yaml\n"
+    config_yaml.write_text(original)
+    (config_yaml.parent / "frontend.yaml").write_text("themes: {}\n")
     await _setup(hass)
-    assert ir.async_get(hass).async_get_issue("portier", "loader_missing").is_fixable
-    client = await hass_client()
-    r = await client.post("/api/repairs/issues/fix", json={"handler": "portier", "issue_id": "loader_missing"})
-    flow = await r.json()
-    assert flow["step_id"] == "confirm"
-    restarts = async_mock_service(hass, "homeassistant", "restart")
-    r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
-    flow = await r.json()
-    assert flow["step_id"] == "restart"
-    assert "/local/portier/loader.js" in cfg.read_text()
-    reg = ir.async_get(hass)
-    # Written, but not active yet: the notice changes to "restart", it does not vanish.
-    assert reg.async_get_issue("portier", "loader_missing") is None
-    assert reg.async_get_issue("portier", "loader_restart") is not None
-    r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
-    assert (await r.json())["type"] == "create_entry"
-    await hass.async_block_till_done()
-    assert len(restarts) == 1
-
-
-async def test_restart_notice_leads_straight_to_restart(hass: HomeAssistant, hass_client) -> None:
-    from homeassistant.components.repairs import DOMAIN as REPAIRS
-
-    from custom_components.portier.frontend import async_loader_written
-
-    await async_setup_component(hass, "http", {})
-    await async_setup_component(hass, REPAIRS, {})
-    await _setup(hass)
-    async_loader_written(hass)
-    restarts = async_mock_service(hass, "homeassistant", "restart")
-    client = await hass_client()
-    r = await client.post("/api/repairs/issues/fix", json={"handler": "portier", "issue_id": "loader_restart"})
-    flow = await r.json()
-    assert flow["step_id"] == "restart"
-    r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
-    assert (await r.json())["type"] == "create_entry"
-    await hass.async_block_till_done()
-    assert len(restarts) == 1
+    # Left untouched; a notice explains the manual step (no button that could break things).
+    assert config_yaml.read_text() == original
+    issue = ir.async_get(hass).async_get_issue("portier", "loader_missing")
+    assert issue is not None and not issue.is_fixable
 
 
 async def test_talk_option(hass: HomeAssistant) -> None:
@@ -536,26 +509,6 @@ async def test_migrate_window_minutes_to_seconds(hass: HomeAssistant) -> None:
     assert "action_window_minutes" not in entry.options
 
 
-async def test_config_flow_telegram_picker(hass: HomeAssistant) -> None:
-    hass.states.async_set("binary_sensor.klingel", "off")
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"name": "Haustür", "trigger_entity": "binary_sensor.klingel"}
-    )
-    assert result["step_id"] == "notify"
-    # The Telegram field is a multi-select, not a text box.
-    field = next(k for k in result["data_schema"].schema if k == "telegram_targets")
-    selector = result["data_schema"].schema[field]
-    assert selector.config["multiple"] is True
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"telegram_targets": ["12345", " -99", "kaputt"]}
-    )
-    assert result["type"] == "create_entry"
-    assert result["options"]["telegram_targets"] == "12345, -99"
-    # Loader not active yet: the finish dialog says what is still missing.
-    assert result["description"] == "loader_pending"
-
-
 async def test_removing_last_door_removes_loader(hass: HomeAssistant, tmp_path, monkeypatch) -> None:
     from pathlib import Path
 
@@ -584,9 +537,11 @@ async def test_removing_last_door_removes_loader(hass: HomeAssistant, tmp_path, 
     assert "/local/portier/loader.js" not in cfg.read_text()
     assert not loader.exists()
 
-    # A new door right away (no restart) gets the repair notice again.
+    # Installed again right away (no restart): the first new door puts everything back.
     await _setup(hass)
-    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is not None
+    assert "/local/portier/loader.js" in cfg.read_text()
+    assert loader.exists()
+    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is None
 
 
 async def test_all_phones_reaches_every_app_once(hass: HomeAssistant) -> None:
