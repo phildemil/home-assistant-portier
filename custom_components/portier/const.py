@@ -32,6 +32,13 @@ CONF_AFTER_OPEN_SECONDS: Final = "after_open_seconds"
 CONF_SOUND: Final = "sound"
 CONF_VOLUME: Final = "volume"
 CONF_TALK: Final = "talk"
+# Open by NFC tag (Home Assistant app): tag entities, allowed phones (device ids),
+# optional time window ("HH:MM"), message to the push receivers after opening.
+CONF_NFC_TAGS: Final = "nfc_tags"
+CONF_NFC_DEVICES: Final = "nfc_devices"
+CONF_NFC_FROM: Final = "nfc_from"
+CONF_NFC_UNTIL: Final = "nfc_until"
+CONF_NFC_NOTIFY: Final = "nfc_notify"
 
 # Notifications
 CONF_NOTIFY: Final = "notify_services"
@@ -49,6 +56,7 @@ SECTION_TRIGGER: Final = "trigger_options"
 SECTION_OPENER: Final = "opener_options"
 SECTION_NOTIFY: Final = "notifications"
 SECTION_VIEW: Final = "live_view"
+SECTION_NFC: Final = "nfc"
 
 EDGE_ON: Final = "on"
 EDGE_OFF: Final = "off"
@@ -75,6 +83,11 @@ DEFAULTS: Final = {
     CONF_SOUND: SOUND_DINGDONG,
     CONF_VOLUME: 70,
     CONF_TALK: False,
+    CONF_NFC_TAGS: [],
+    CONF_NFC_DEVICES: [],
+    CONF_NFC_FROM: None,
+    CONF_NFC_UNTIL: None,
+    CONF_NFC_NOTIFY: False,
     CONF_NOTIFY: [],
     CONF_TELEGRAM_TARGETS: "",
     CONF_NOTIFY_OPEN: True,

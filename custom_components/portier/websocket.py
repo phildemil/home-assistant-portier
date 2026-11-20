@@ -12,6 +12,7 @@ from homeassistant.components import websocket_api
 from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util, slugify
 
@@ -164,6 +165,26 @@ def ws_dismiss(
 
 
 # ---------------------------------------------------------------- door editing
+def _nfc_tags(hass: HomeAssistant) -> list[dict[str, str]]:
+    """NFC tags Home Assistant knows (scanned once with the app)."""
+    tags = [
+        {"entity_id": st.entity_id, "name": st.name, "tag_id": str(st.attributes.get("tag_id", ""))}
+        for st in hass.states.async_all("tag")
+    ]
+    return sorted(tags, key=lambda t: t["name"].lower())
+
+
+def _nfc_phones(hass: HomeAssistant) -> list[dict[str, str]]:
+    """Phones with the Home Assistant app, as devices (the tag event names the device)."""
+    reg = dr.async_get(hass)
+    phones = [
+        {"device_id": device.id, "name": device.name_by_user or device.name or entry.title}
+        for entry in hass.config_entries.async_entries("mobile_app")
+        for device in dr.async_entries_for_config_entry(reg, entry.entry_id)
+    ]
+    return sorted(phones, key=lambda p: p["name"].lower())
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/config"})
 @websocket_api.require_admin
 @callback
@@ -190,6 +211,8 @@ def ws_config(
             "notify_services": notify,
             "telegram": hass.services.has_service("telegram_bot", "send_message"),
             "telegram_chats": telegram_chats(hass),
+            "nfc_tags": _nfc_tags(hass),
+            "nfc_phones": _nfc_phones(hass),
             "doors": {
                 e.entry_id: {**DEFAULTS, **e.options, "name": e.options.get("name") or e.title}
                 for e in hass.config_entries.async_entries(DOMAIN)

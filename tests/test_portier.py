@@ -72,6 +72,7 @@ async def test_config_flow(hass: HomeAssistant) -> None:
             "opener_options": {},
             "trigger_options": {},
             "live_view": {"live_seconds": 90},
+            "nfc": {},
         },
     )
     assert result["type"] == "create_entry"
@@ -648,3 +649,81 @@ async def test_ring_history_who_and_entity(hass: HomeAssistant, hass_admin_user)
     assert history[1]["source"] == "trigger"
     assert history[1]["entity"] == "binary_sensor.klingel"
     assert history[1]["who"] == "Klingeltaste unten"
+
+
+async def _nfc_door(hass: HomeAssistant, **options):
+    hass.states.async_set("tag.haustuer", "unknown", {"tag_id": "abc-123", "friendly_name": "Haustür"})
+    opts = {"nfc_tags": ["tag.haustuer"], "nfc_devices": ["phone-kind"], **options}
+    return await _setup(hass, **opts)
+
+
+async def test_nfc_opens_for_allowed_phone(hass: HomeAssistant, hass_admin_user) -> None:
+    from homeassistant.core import Context
+
+    notes = async_mock_service(hass, "notify", "mobile_app_eltern")
+    entry = await _nfc_door(hass, nfc_notify=True, notify_services=["mobile_app_eltern"])
+    opened = []
+    hass.bus.async_listen("portier_opened", opened.append)
+
+    # Unknown phone at the right tag: nothing.
+    hass.bus.async_fire("tag_scanned", {"tag_id": "abc-123", "device_id": "phone-fremd"})
+    # Allowed phone at another tag: nothing.
+    hass.bus.async_fire("tag_scanned", {"tag_id": "other", "device_id": "phone-kind"})
+    await hass.async_block_till_done()
+    assert not opened
+
+    # Allowed phone at the door's tag: opens, logged with the user, parents told.
+    hass.bus.async_fire(
+        "tag_scanned",
+        {"tag_id": "abc-123", "device_id": "phone-kind"},
+        context=Context(user_id=hass_admin_user.id),
+    )
+    await hass.async_block_till_done()
+    assert len(opened) == 1
+    assert opened[0].data["via"] == "nfc"
+    assert hass.states.get("input_boolean.oeffner").state == "on"
+    last = entry.runtime_data.snapshot(True)["opens"][0]
+    assert (last["via"], last["who"]) == ("nfc", hass_admin_user.name)
+    assert len(notes) == 1
+    assert "per NFC geöffnet" in notes[0].data["message"]
+
+
+async def test_nfc_respects_time_window(hass: HomeAssistant) -> None:
+    now = dt_util.now()
+    start = (now + timedelta(hours=1)).strftime("%H:%M:%S")
+    end = (now + timedelta(hours=2)).strftime("%H:%M:%S")
+    await _nfc_door(hass, nfc_from=start, nfc_until=end)
+    opened = []
+    hass.bus.async_listen("portier_opened", opened.append)
+    hass.bus.async_fire("tag_scanned", {"tag_id": "abc-123", "device_id": "phone-kind"})
+    await hass.async_block_till_done()
+    assert not opened
+
+
+def test_nfc_time_window_over_midnight() -> None:
+    from datetime import time
+
+    from custom_components.portier.nfc import in_window
+
+    assert in_window(time(23, 0), time(22, 0), time(6, 0))
+    assert in_window(time(5, 59), time(22, 0), time(6, 0))
+    assert not in_window(time(12, 0), time(22, 0), time(6, 0))
+    assert in_window(time(12, 0), None, None)
+    assert not in_window(time(6, 30), time(7, 0), None)
+
+
+async def test_nfc_needs_phone_and_opener(hass: HomeAssistant) -> None:
+    from custom_components.portier.config_flow import panel_options
+
+    base = {**BASE}
+    _, errors = panel_options(hass, {**base, "nfc_tags": ["tag.haustuer"], "nfc_devices": []}, None, base)
+    assert errors.get("nfc_devices") == "nfc_needs_phone"
+    _, errors = panel_options(
+        hass, {**base, "opener_entity": "", "nfc_tags": ["tag.x"], "nfc_devices": ["p"]}, None, base
+    )
+    assert errors.get("nfc_tags") == "nfc_needs_opener"
+    options, errors = panel_options(
+        hass, {**base, "nfc_tags": ["tag.x"], "nfc_devices": ["p"], "nfc_from": "7:00"}, None, base
+    )
+    assert not errors
+    assert options["nfc_from"] == "07:00:00"

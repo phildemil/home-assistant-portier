@@ -45,6 +45,7 @@ VIA_TEXT = {
     "service": "über Home Assistant",
     "button": "über Home Assistant",
     "push": "über die App-Benachrichtigung",
+    "nfc": "per NFC an der Tür",
 }
 
 
@@ -145,6 +146,27 @@ class Notifier:
 
         if targets:
             await self._send_telegram(targets, f"{title}\n{message}", token)
+
+    async def async_info(self, title: str, message: str) -> None:
+        """A plain note (no picture, no button) to the door's push and Telegram receivers."""
+        for service in self._services():
+            data: dict[str, Any] = {"title": title, "message": message}
+            if service.startswith("mobile_app_"):
+                data["data"] = {"tag": f"portier_info_{self.door.entry.entry_id}", "group": "portier"}
+            try:
+                await self._call("notify", service, data)
+            except (HomeAssistantError, ValueError, TimeoutError) as err:
+                _LOGGER.warning("Portier: Hinweis über %s fehlgeschlagen: %s", service, err)
+        targets = parse_telegram_targets(self.door.opt(CONF_TELEGRAM_TARGETS))
+        if targets and self.hass.services.has_service("telegram_bot", "send_message"):
+            try:
+                await self._call(
+                    "telegram_bot",
+                    "send_message",
+                    {"chat_id": targets, "message": f"{title}\n{message}"},
+                )
+            except (HomeAssistantError, ValueError, TimeoutError) as err:
+                _LOGGER.warning("Portier: Telegram-Hinweis fehlgeschlagen: %s", err)
 
     async def _send_mobile(
         self, service: str, title: str, message: str, token: str | None

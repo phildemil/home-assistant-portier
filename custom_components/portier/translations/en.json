@@ -37,7 +37,9 @@
     },
     "error": {
       "same_entity": "The opener cannot also be the doorbell button or chime.",
-      "opener_in_use": "This opener already belongs to another door."
+      "opener_in_use": "This opener already belongs to another door.",
+      "nfc_needs_phone": "Choose at least one phone that may open with the tag.",
+      "nfc_needs_opener": "Opening by NFC needs a door opener."
     },
     "create_entry": {
       "loader_pending": "Door created – it works right away.\n\n**One step left:** under Settings → Repairs, confirm the \"Portier\" notice once. Portier then adds one line to `configuration.yaml` and restarts Home Assistant. Without it, the live view does not appear on pages and apps that were already open."
@@ -114,13 +116,31 @@
             "data_description": {
               "talk": "Shows a speaker and a push-to-talk button in the live view. Needs WebRTC (e.g. go2rtc), a camera that accepts audio, and Home Assistant over https."
             }
+          },
+          "nfc": {
+            "name": "Open by NFC tag",
+            "data": {
+              "nfc_tags": "NFC tags at the door",
+              "nfc_devices": "Phones that may open",
+              "nfc_from": "Allowed from",
+              "nfc_until": "Allowed until",
+              "nfc_notify": "Message when someone opens by NFC"
+            },
+            "data_description": {
+              "nfc_tags": "Hold the phone with the Home Assistant app to a tag once; it then appears here. The phone must reach Home Assistant (e.g. home Wi-Fi at the door).",
+              "nfc_devices": "Only these phones open the door. Other phones at the tag do nothing.",
+              "nfc_from": "Leave both times empty to allow it all day.",
+              "nfc_notify": "Goes to the push and Telegram receivers of this door."
+            }
           }
         }
       }
     },
     "error": {
       "same_entity": "The opener cannot also be the doorbell button or chime.",
-      "opener_in_use": "This opener already belongs to another door."
+      "opener_in_use": "This opener already belongs to another door.",
+      "nfc_needs_phone": "Choose at least one phone that may open with the tag.",
+      "nfc_needs_opener": "Opening by NFC needs a door opener."
     }
   },
   "selector": {

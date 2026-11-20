@@ -37,7 +37,9 @@
     },
     "error": {
       "same_entity": "Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
-      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür."
+      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür.",
+      "nfc_needs_phone": "Bitte mindestens ein Handy auswählen, das mit dem Aufkleber öffnen darf.",
+      "nfc_needs_opener": "Öffnen per NFC braucht einen Türöffner."
     },
     "create_entry": {
       "loader_pending": "Tür angelegt – sie funktioniert sofort.\n\n**Ein Schritt fehlt noch:** Unter Einstellungen → Reparaturen einmal den Hinweis „Portier“ bestätigen. Portier trägt dann eine Zeile in die `configuration.yaml` ein und startet Home Assistant neu. Ohne das erscheint das Livebild nicht auf Seiten und Apps, die schon offen waren."
@@ -114,13 +116,31 @@
             "data_description": {
               "talk": "Zeigt im Livebild einen Lautsprecher- und einen Sprechen-Knopf. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https."
             }
+          },
+          "nfc": {
+            "name": "Öffnen per NFC-Aufkleber",
+            "data": {
+              "nfc_tags": "NFC-Aufkleber an der Tür",
+              "nfc_devices": "Handys, die öffnen dürfen",
+              "nfc_from": "Erlaubt ab",
+              "nfc_until": "Erlaubt bis",
+              "nfc_notify": "Nachricht, wenn jemand per NFC öffnet"
+            },
+            "data_description": {
+              "nfc_tags": "Das Handy mit der Home-Assistant-App einmal an den Aufkleber halten, dann erscheint er hier. Das Handy muss Home Assistant erreichen (z. B. WLAN an der Tür).",
+              "nfc_devices": "Nur diese Handys öffnen die Tür. Andere Handys am Aufkleber bewirken nichts.",
+              "nfc_from": "Beide Zeiten leer lassen = rund um die Uhr.",
+              "nfc_notify": "Geht an die Push- und Telegram-Empfänger dieser Tür."
+            }
           }
         }
       }
     },
     "error": {
       "same_entity": "Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
-      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür."
+      "opener_in_use": "Dieser Türöffner gehört schon zu einer anderen Tür.",
+      "nfc_needs_phone": "Bitte mindestens ein Handy auswählen, das mit dem Aufkleber öffnen darf.",
+      "nfc_needs_opener": "Öffnen per NFC braucht einen Türöffner."
     }
   },
   "selector": {

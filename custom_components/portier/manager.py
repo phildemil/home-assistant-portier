@@ -71,6 +71,7 @@ from .const import (
     SIGNAL_UPDATE,
     EVENT_DISMISSED,
 )
+from .nfc import NfcOpener
 from .notifications import Notifier
 
 _LOGGER = logging.getLogger(__name__)
@@ -126,6 +127,7 @@ class PortierDoor:
         self._pending_off: set[str] = set()
         self._last_trigger: datetime | None = None
         self.notifier = Notifier(hass, self)
+        self.nfc = NfcOpener(hass, self)
 
     # ------------------------------------------------------------------ config
     def opt(self, key: str) -> Any:
@@ -176,6 +178,7 @@ class PortierDoor:
                 async_track_state_change_event(self.hass, watched, self._handle_watched)
             )
         self._unsubs.extend(self.notifier.async_listen())
+        self._unsubs.extend(self.nfc.async_listen())
 
     async def async_unload(self) -> None:
         """Stop listening and make sure nothing stays switched on."""
@@ -238,7 +241,7 @@ class PortierDoor:
     ) -> None:
         """Handle a ring: inform frontends, gong, push."""
         now = dt_util.utcnow()
-        who = who or await self._user_name(context)
+        who = who or await self.user_name(context)
         st = self.state
         st.ring_id += 1
         st.ring_count += 1
@@ -337,7 +340,7 @@ class PortierDoor:
                 await self._activate(entity_id, context)
 
         now = dt_util.utcnow()
-        who = who or await self._user_name(context)
+        who = who or await self.user_name(context)
         self.state.last_opened = now
         self.state.view_until = now + timedelta(seconds=int(self.opt(CONF_AFTER_OPEN_SECONDS)))
         self.state.opens.appendleft(OpenRecord(now, via, who))
@@ -351,7 +354,7 @@ class PortierDoor:
         self.notifier.async_door_opened(via, who)
         _LOGGER.info("Portier: %s geöffnet (%s, %s)", self.name, via, who or "ohne Benutzer")
 
-    async def _user_name(self, context: Context | None) -> str | None:
+    async def user_name(self, context: Context | None) -> str | None:
         """Name of the Home Assistant user behind an action (None for automations)."""
         if not context or not context.user_id:
             return None

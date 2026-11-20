@@ -10,8 +10,11 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import section
 from homeassistant.helpers import config_validation as cv
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    DeviceSelector,
+    DeviceSelectorConfig,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
@@ -22,9 +25,16 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
+    TimeSelector,
 )
 
 from .const import (
+    CONF_NFC_DEVICES,
+    CONF_NFC_FROM,
+    CONF_NFC_NOTIFY,
+    CONF_NFC_TAGS,
+    CONF_NFC_UNTIL,
+    SECTION_NFC,
     NOTIFY_ALL_MOBILE,
     CONF_ACTION_WINDOW,
     CONF_ADMIN_ONLY,
@@ -84,7 +94,9 @@ SECTIONS = {
         CONF_ACTION_WINDOW,
     ),
     SECTION_VIEW: (CONF_LIVE_SECONDS, CONF_AFTER_OPEN_SECONDS, CONF_SOUND, CONF_VOLUME, CONF_TALK),
+    SECTION_NFC: (CONF_NFC_TAGS, CONF_NFC_DEVICES, CONF_NFC_FROM, CONF_NFC_UNTIL, CONF_NFC_NOTIFY),
 }
+NFC_LISTS = (CONF_NFC_TAGS, CONF_NFC_DEVICES)
 
 
 def _entity(domains: list[str]) -> EntitySelector:
@@ -220,11 +232,23 @@ def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
         _opt(CONF_VOLUME, values): _num(0, 100, 5, "%"),
         _opt(CONF_TALK, values): BooleanSelector(),
     }
+    nfc = {
+        _opt(CONF_NFC_TAGS, values): EntitySelector(
+            EntitySelectorConfig(domain="tag", multiple=True)
+        ),
+        _opt(CONF_NFC_DEVICES, values): DeviceSelector(
+            DeviceSelectorConfig(integration="mobile_app", multiple=True)
+        ),
+        _opt(CONF_NFC_FROM, values): TimeSelector(),
+        _opt(CONF_NFC_UNTIL, values): TimeSelector(),
+        _opt(CONF_NFC_NOTIFY, values): BooleanSelector(),
+    }
     return {
         vol.Required(SECTION_NOTIFY): section(vol.Schema(notify), {"collapsed": False}),
         vol.Required(SECTION_OPENER): section(vol.Schema(opener), {"collapsed": True}),
         vol.Required(SECTION_TRIGGER): section(vol.Schema(trigger), {"collapsed": True}),
         vol.Required(SECTION_VIEW): section(vol.Schema(view), {"collapsed": True}),
+        vol.Required(SECTION_NFC): section(vol.Schema(nfc), {"collapsed": True}),
     }
 
 
@@ -238,6 +262,9 @@ def _flatten(user_input: dict[str, Any]) -> dict[str, Any]:
             flat[key] = value
     for key in DEVICE_KEYS:
         if not flat.get(key):
+            flat[key] = None
+    for key in (CONF_NFC_FROM, CONF_NFC_UNTIL):
+        if key in flat and not flat[key]:
             flat[key] = None
     return flat
 
@@ -253,6 +280,11 @@ def _validate(
         for entry in hass.config_entries.async_entries(DOMAIN):
             if entry.entry_id != own_entry_id and entry.options.get(CONF_OPENER) == opener:
                 errors[CONF_OPENER] = "opener_in_use"
+    if flat.get(CONF_NFC_TAGS):
+        if not opener:
+            errors[CONF_NFC_TAGS] = "nfc_needs_opener"
+        elif not flat.get(CONF_NFC_DEVICES):
+            errors[CONF_NFC_DEVICES] = "nfc_needs_phone"
     return errors
 
 
@@ -266,6 +298,16 @@ def _domain_entity(domains: list[str]):
         return value
 
     return check
+
+
+def _time_or_none(value: Any) -> str | None:
+    """'7:05' / '07:05:00' -> '07:05:00'; empty -> None."""
+    if value in (None, ""):
+        return None
+    parsed = dt_util.parse_time(str(value).strip())
+    if parsed is None:
+        raise vol.Invalid("Uhrzeit wie 07:00 eingeben")
+    return parsed.strftime("%H:%M:%S")
 
 
 def _list_of_str(value: Any) -> list[str]:
@@ -302,6 +344,11 @@ PANEL_SCHEMA = vol.Schema(
         vol.Optional(CONF_SOUND): vol.In([SOUND_DINGDONG, SOUND_SOFT, SOUND_TRIPLE, SOUND_OFF]),
         vol.Optional(CONF_VOLUME): vol.All(vol.Coerce(int), vol.Range(0, 100)),
         vol.Optional(CONF_TALK): bool,
+        vol.Optional(CONF_NFC_TAGS): _list_of_str,
+        vol.Optional(CONF_NFC_DEVICES): _list_of_str,
+        vol.Optional(CONF_NFC_FROM): _time_or_none,
+        vol.Optional(CONF_NFC_UNTIL): _time_or_none,
+        vol.Optional(CONF_NFC_NOTIFY): bool,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -393,7 +440,7 @@ class PortierOptionsFlow(OptionsFlowWithReload):
         current = {**DEFAULTS, **self.config_entry.options}
         if user_input is not None:
             flat = _flatten(user_input)
-            for key in (CONF_NOTIFY, CONF_EVENT_TYPES):
+            for key in (CONF_NOTIFY, CONF_EVENT_TYPES, *NFC_LISTS):
                 flat.setdefault(key, [])
             flat.setdefault(CONF_TELEGRAM_TARGETS, "")
             _telegram_to_text(flat)

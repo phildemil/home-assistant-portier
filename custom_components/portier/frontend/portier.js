@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.8.2";
+const VERSION = "1.9.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -122,6 +122,7 @@ class Chime {
 const OPEN_VIA = {
   app: "Home Assistant",
   push: "Handy-Benachrichtigung",
+  nfc: "NFC an der Tür",
   telegram: "Telegram",
   button: "Taste in Home Assistant",
   service: "Aktion portier.open",
@@ -1194,7 +1195,7 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .f>span{font-size:14px}
 .f small{font-size:12px;color:var(--pt-muted);line-height:1.4;max-width:62ch}
 .f small.err{color:var(--pt-alert)}
-.f input[type=text],.f input[type=number],.f select{width:100%;font:inherit;font-size:15px;color:var(--pt-ink);
+.f input[type=text],.f input[type=number],.f input[type=time],.f select{color-scheme:dark;width:100%;font:inherit;font-size:15px;color:var(--pt-ink);
   background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px;padding:10px 12px;min-height:44px}
 .f input:focus-visible,.f select:focus-visible{outline:2px solid var(--pt-brass);outline-offset:1px;border-color:transparent}
 .f.bad input,.f.bad select{border-color:var(--pt-alert)}
@@ -1235,6 +1236,8 @@ const DOMAINS = {
 const ERRORS = {
   same_entity: "Der Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.",
   opener_in_use: "Dieser Türöffner gehört schon zu einer anderen Tür.",
+  nfc_needs_phone: "Bitte mindestens ein Handy auswählen, das mit dem Aufkleber öffnen darf.",
+  nfc_needs_opener: "Öffnen per NFC braucht einen Türöffner.",
 };
 
 function notifyLabel(service, labels) {
@@ -1244,6 +1247,37 @@ function notifyLabel(service, labels) {
 }
 
 class PortierEditor extends HTMLElement {
+  /** "Open by NFC tag": tick tags and allowed phones, optional time window. */
+  nfcMarkup(v, cfg) {
+    const ticks = (name, items, chosen) =>
+      items
+        .map(
+          (it) => `<label class="chk"><input type="checkbox" name="${name}" value="${esc(it.value)}"
+            ${(chosen || []).includes(it.value) ? "checked" : ""}>${esc(it.label)}</label>`,
+        )
+        .join("");
+    const tags = (cfg.nfc_tags || []).map((t) => ({ value: t.entity_id, label: t.name }));
+    for (const id of v.nfc_tags || []) if (!tags.some((t) => t.value === id)) tags.push({ value: id, label: id });
+    const phones = (cfg.nfc_phones || []).map((p) => ({ value: p.device_id, label: p.name }));
+    for (const id of v.nfc_devices || []) if (!phones.some((p) => p.value === id)) phones.push({ value: id, label: "Unbekanntes Handy" });
+    const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
+    const on = (v.nfc_tags || []).length > 0;
+    return `<details${on ? " open" : ""}><summary>Öffnen per NFC-Aufkleber</summary><div>
+          <div class="f" data-f="nfc_tags"><span>NFC-Aufkleber an der Tür</span>
+            <div class="checks">${ticks("nfc_tags", tags, v.nfc_tags) || `<small>Noch kein Aufkleber bekannt. Das Handy mit der Home-Assistant-App einmal an den Aufkleber halten (oder unter Einstellungen → Tags einen anlegen), dann erscheint er hier.</small>`}</div>
+            <small>Das Handy muss Home Assistant erreichen, z. B. über das WLAN an der Tür.</small></div>
+          <div class="f" data-f="nfc_devices"><span>Handys, die öffnen dürfen</span>
+            <div class="checks">${ticks("nfc_devices", phones, v.nfc_devices) || `<small>Keine Handys mit der Home-Assistant-App gefunden.</small>`}</div>
+            <small>Nur diese Handys öffnen. Andere Handys am Aufkleber bewirken nichts.</small></div>
+          <div class="two">
+            <label class="f" data-f="nfc_from"><span>Erlaubt ab</span><input type="time" name="nfc_from" value="${hhmm(v.nfc_from)}"></label>
+            <label class="f" data-f="nfc_until"><span>Erlaubt bis</span><input type="time" name="nfc_until" value="${hhmm(v.nfc_until)}"></label>
+          </div>
+          <small>Beide Zeiten leer = rund um die Uhr.</small>
+          ${this.check("nfc_notify", "Nachricht, wenn jemand per NFC öffnet", v.nfc_notify, "Geht an die Push- und Telegram-Empfänger dieser Tür.")}
+        </div></details>`;
+  }
+
   async open({ hass, entryId }) {
     this.hass = hass;
     this.entryId = entryId;
@@ -1392,6 +1426,7 @@ class PortierEditor extends HTMLElement {
           </div>
           ${this.check("open_admin_only", "Nur Administratoren dürfen öffnen", v.open_admin_only)}
         </div></details>
+        ${this.nfcMarkup(v, cfg)}
         <details><summary>Klingeltaster genauer einstellen</summary><div>
           ${this.select("trigger_edge", "Auslösen bei", v.trigger_edge, [
             ["on", "Einschalten (Standard)"], ["off", "Ausschalten (invertierter Eingang)"], ["both", "Beides"],
@@ -1508,6 +1543,11 @@ class PortierEditor extends HTMLElement {
       trigger_edge: val("trigger_edge"),
       event_types: val("event_types"),
       debounce_seconds: num("debounce_seconds"),
+      nfc_tags: [...f.querySelectorAll("[name=nfc_tags]:checked")].map((c) => c.value),
+      nfc_devices: [...f.querySelectorAll("[name=nfc_devices]:checked")].map((c) => c.value),
+      nfc_from: val("nfc_from") || null,
+      nfc_until: val("nfc_until") || null,
+      nfc_notify: f.elements.nfc_notify.checked,
     };
   }
 

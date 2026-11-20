@@ -54,6 +54,16 @@ Jeder Öffnen-Knopf funktioniert nur **einmal** und nur kurz nach der Nachricht 
 
 Wenn du bisher eigene Automationen für Push oder Telegram hast, deaktiviere sie, sonst kommen Nachrichten doppelt.
 
+## Öffnen per NFC-Aufkleber
+
+Wer ein Handy mit der Home-Assistant-App hat, kann die Tür öffnen, indem er es an einen NFC-Aufkleber neben der Tür hält – ohne Tippen, praktisch für Kinder.
+
+1. Aufkleber anbringen und das Handy einmal dranhalten (oder unter *Einstellungen → Tags* anlegen). Home Assistant kennt ihn dann.
+2. Beim **Zahnrad** der Tür unter **„Öffnen per NFC-Aufkleber“** den Aufkleber und die **Handys, die öffnen dürfen**, ankreuzen. Andere Handys am Aufkleber bewirken nichts.
+3. Optional: Zeitfenster (z. B. 07:00–20:00) und eine Nachricht an die Push- und Telegram-Empfänger, wenn jemand per NFC öffnet.
+
+Das Handy muss Home Assistant dabei erreichen – zu Hause also WLAN bis an die Tür, unterwegs ein Zugang von außen (z. B. Home Assistant Cloud). In der App unter *Begleit-App → Server* das Heim-WLAN eintragen. Jedes Öffnen steht im Türöffner-Verlauf.
+
 ## Türöffner sicher betreiben
 
 Bei Schaltern schaltet Portier nach der Impulsdauer (Standard 3 s) wieder aus. Die Abschaltung wird vorher gespeichert. Startet Home Assistant mitten im Impuls neu, schaltet Portier das Relais beim Start sofort aus. Klappt das Ausschalten nicht, versucht Portier es weiter und zeigt eine Benachrichtigung in HA.
