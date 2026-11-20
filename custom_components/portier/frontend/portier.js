@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.6.4";
+const VERSION = "1.6.5";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -121,11 +121,16 @@ async function soundButton(btn, kind, volume) {
   if (btn.disabled) return false;
   const label = btn.textContent;
   btn.disabled = true;
+  btn.classList.add("working");
   btn.textContent = "♪ Spielt …";
   const ok = await ctrl.chime.playNow(kind === "off" ? "dingdong" : kind, volume);
-  if (!ok) btn.textContent = "Ton blockiert";
+  if (!ok) {
+    btn.classList.replace("working", "failed");
+    btn.textContent = "Ton blockiert";
+  }
   setTimeout(() => {
     btn.disabled = false;
+    btn.classList.remove("working", "failed");
     btn.textContent = label;
   }, ok ? 1800 : 2500);
   return ok;
@@ -457,6 +462,9 @@ button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
 .status .warn{color:var(--pt-alert)}
 .quiet{white-space:nowrap;border:1px solid var(--pt-edge);background:none;border-radius:999px;padding:8px 14px;font-size:14px;color:var(--pt-ink)}
 .quiet:hover{background:#ffffff0d}
+/* Side buttons while they work: brass outline and text, never filled – the door key stays the one big button. */
+.quiet.working,.pic .quiet.working,.device .quiet.working{color:var(--pt-brass-hi);border-color:var(--pt-brass);cursor:default}
+.quiet.failed,.pic .quiet.failed,.device .quiet.failed{color:var(--pt-alert);border-color:var(--pt-alert);cursor:default}
 
 /* The brass key: hold to open */
 .key{position:relative;flex:none;width:76px;height:76px;border-radius:50%;border:0;padding:0;
@@ -1541,6 +1549,7 @@ class PortierPanel extends HTMLElement {
       .live-btn{flex:none;border:0;border-radius:999px;padding:6px 12px;white-space:nowrap;
         background:#0000004d;backdrop-filter:blur(6px);color:#fff;font-size:13px}
       .live-btn:hover{background:#00000080}
+      .live-btn.on{color:var(--pt-brass-hi);box-shadow:inset 0 0 0 1px var(--pt-brass)}
       .pic .status{display:grid;gap:8px}
       .pic .meta{padding:0;gap:2px 14px;font-size:12px;color:#ffffffd9}
       .pic .meta b{color:#fff}
@@ -1559,6 +1568,8 @@ class PortierPanel extends HTMLElement {
       .switch:checked::after{transform:translateX(18px)}
       .switch:focus-visible{outline:2px solid var(--pt-brass);outline-offset:2px}
       .device .quiet{color:var(--primary-text-color);border-color:var(--divider-color,#555)}
+      .quiet.working,.pic .quiet.working,.device .quiet.working{color:var(--pt-brass-hi);border-color:var(--pt-brass);cursor:default}
+      .quiet.failed,.pic .quiet.failed,.device .quiet.failed{color:var(--pt-alert);border-color:var(--pt-alert);cursor:default}
       .empty{text-align:center;padding:48px 16px;color:var(--secondary-text-color);display:grid;gap:16px;justify-items:center}
       .bar .spacer{flex:1}
       .add{border:0;border-radius:999px;padding:8px 16px;background:var(--pt-brass);color:#2b230c;font-weight:600;font-size:14px}
@@ -1758,16 +1769,19 @@ class PortierPanel extends HTMLElement {
     test.addEventListener("click", () => {
       if (test.disabled) return;
       test.disabled = true;
+      test.classList.add("working");
       test.textContent = "Klingelt …";
       ctrl
         .testRing(door.entry_id)
         .catch((err) => {
           console.warn("Portier: Testklingel fehlgeschlagen", err);
+          test.classList.replace("working", "failed");
           test.textContent = "Fehlgeschlagen";
         })
         .finally(() =>
           setTimeout(() => {
             test.disabled = false;
+            test.classList.remove("working", "failed");
             test.textContent = "Testklingel";
           }, 2000),
         );
@@ -1784,6 +1798,7 @@ class PortierPanel extends HTMLElement {
       el.talk.reset();
       existing.destroy();
       this.live.delete(entryId);
+      btn.classList.remove("on");
       btn.textContent = "Live ansehen";
       return;
     }
@@ -1796,6 +1811,7 @@ class PortierPanel extends HTMLElement {
     win.insertBefore(view.el, win.querySelector(".plate-head"));
     view.start();
     this.live.set(entryId, view);
+    btn.classList.add("on");
     btn.textContent = "Live beenden";
   }
 
