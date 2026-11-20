@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.2";
+const VERSION = "1.9.3";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1629,6 +1629,7 @@ class PortierPanel extends HTMLElement {
       .bar{display:flex;align-items:center;gap:8px;height:56px;padding:0 8px 0 4px;
         background:var(--app-header-background-color,var(--primary-color));color:var(--app-header-text-color,#fff)}
       .bar h1{font-size:20px;font-weight:400;margin:0 0 0 8px}
+      .bar .ver{font-size:12px;opacity:.6;margin-left:6px;white-space:nowrap;padding-top:4px}
       .menu{border:0;background:none;width:48px;height:48px;border-radius:50%;color:inherit;display:grid;place-items:center}
       main{max-width:1180px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:20px}
       .doors{display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr))}
@@ -1676,7 +1677,7 @@ class PortierPanel extends HTMLElement {
       .gear:hover{color:var(--pt-ink);background:#ffffff10}
       ${EDITOR_CSS}
     </style>
-    <div class="bar"><button class="menu" aria-label="Menü"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg></button><h1>Türklingel</h1><span class="spacer"></span><button class="add" data-act="add" hidden>+ Tür hinzufügen</button></div>
+    <div class="bar"><button class="menu" aria-label="Menü"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg></button><h1>Türklingel</h1><span class="ver" title="Installierte Portier-Version">Portier ${VERSION}</span><span class="spacer"></span><button class="add" data-act="add" hidden>+ Tür hinzufügen</button></div>
     <main>
       <div class="doors"></div>
       <section class="device">
