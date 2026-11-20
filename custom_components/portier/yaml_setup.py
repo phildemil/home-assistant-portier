@@ -118,3 +118,62 @@ def install_loader(config_path: Path, url: str = LOADER_URL) -> bool:
         shutil.copy2(backup, config_path)
         raise CannotEdit(str(err)) from err
     return True
+
+
+def remove_loader(text: str, url: str = LOADER_URL) -> str:
+    """Return the YAML text without the loader (the reverse of add_loader).
+
+    Empty `extra_module_url:` and `frontend:` keys that only held the loader are
+    removed as well. Inline lists and other unusual layouts raise CannotEdit.
+    """
+    if url not in text:
+        return text
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    hits = [i for i, line in enumerate(lines) if url in line]
+    for i in hits:
+        if lines[i].strip().split("#", 1)[0].strip() != f"- {url}":
+            raise CannotEdit("inline")
+    for i in reversed(hits):
+        del lines[i]
+
+    def _drop_empty_key(key: str, top_level: bool) -> None:
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.split("#", 1)[0].strip() != f"{key}:":
+                continue
+            if top_level != (_indent(line) == 0):
+                continue
+            nxt = next((j for j in range(i + 1, len(lines)) if _is_content(lines[j])), None)
+            if nxt is None or _indent(lines[nxt]) <= _indent(line):
+                del lines[i]
+                # drop a blank line we left behind before the key
+                if i > 0 and i <= len(lines) and not lines[i - 1].strip() and (
+                    i == len(lines) or not lines[i].strip()
+                ):
+                    del lines[i - 1]
+            return
+
+    _drop_empty_key("extra_module_url", top_level=False)
+    _drop_empty_key("frontend", top_level=True)
+    return newline.join(lines).rstrip("\r\n") + newline
+
+
+def uninstall_loader(config_path: Path, url: str = LOADER_URL) -> bool:
+    """Take the loader out of configuration.yaml again (backup + check)."""
+    original = config_path.read_text(encoding="utf-8")
+    new = remove_loader(original, url)
+    if new == original:
+        return False
+    backup = config_path.with_name(config_path.name + BACKUP_SUFFIX)
+    shutil.copy2(config_path, backup)
+    config_path.write_text(new, encoding="utf-8")
+    try:
+        data = load_yaml(str(config_path), Secrets(config_path.parent))
+        modules = ((data or {}).get("frontend") or {}).get("extra_module_url") or []
+        if url in modules:
+            raise CannotEdit("still there")
+    except (HomeAssistantError, CannotEdit, AttributeError, OSError) as err:
+        shutil.copy2(backup, config_path)
+        raise CannotEdit(str(err)) from err
+    return True

@@ -29,6 +29,8 @@ Portier arbeitet mit dem, was du schon in Home Assistant hast:
    Damit lädt HA Portier ab der ersten Sekunde auf jeder Seite, auch nach einem Stromausfall oder wenn die App sich neu verbindet. Vorher wird `configuration.yaml.portier-backup` angelegt. Ist die Datei ungewöhnlich aufgebaut (z. B. `frontend:` über `!include`), sagt Portier, was von Hand einzutragen ist.
 6. In der Seitenleiste erscheint **Türklingel**. Fertig – keine Automationen, keine Dashboard-Karten.
 
+**Entfernen:** Wird die letzte Portier-Tür gelöscht, nimmt Portier die Zeile wieder aus der `configuration.yaml` (mit Sicherung) und löscht seinen Lader. Bei einer Neuinstallation erscheint der Reparatur-Hinweis dann wieder.
+
 ## Türen verwalten
 
 Alles geht direkt in der Seitenleiste **Türklingel** (als Administrator):

@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 
 from .const import DOMAIN, PANEL_URL, STATIC_URL
-from .yaml_setup import LOADER_URL
+from .yaml_setup import LOADER_URL, CannotEdit, uninstall_loader
 
 _DIR = Path(__file__).parent / "frontend"
 _FILE = "portier.js"
@@ -26,7 +26,9 @@ CURRENT_URL = f"{STATIC_URL}/current"
 # long before integrations are loaded. It waits until Portier is up, then loads it.
 LOADER_JS = """// Portier loader – created automatically, do not edit.
 (async () => {
-  for (;;) {
+  // Waits for Portier while Home Assistant starts; gives up after ~10 minutes
+  // (e.g. Portier was removed but this line is still in configuration.yaml).
+  for (let i = 0; i < 200; i++) {
     if (window.__portier) return;
     try {
       const r = await fetch("%s", { cache: "no-store", credentials: "same-origin" });
@@ -76,6 +78,8 @@ ISSUE_RESTART = "loader_restart"
 
 def loader_configured(hass: HomeAssistant) -> bool:
     """True if configuration.yaml loads the Portier loader on every page."""
+    if hass.data.get(_KEY, {}).get("yaml_removed"):
+        return False  # taken out again; HA still runs with it until the next restart
     manager = hass.data.get(frontend.DATA_EXTRA_MODULE_URL)
     return bool(manager) and LOADER_URL in getattr(manager, "urls", ())
 
@@ -114,7 +118,9 @@ def _async_check_loader(hass: HomeAssistant) -> None:
 @callback
 def async_loader_written(hass: HomeAssistant) -> None:
     """The repair wrote the line: from now on only a restart is missing."""
-    hass.data.setdefault(_KEY, {})["yaml_written"] = True
+    data = hass.data.setdefault(_KEY, {})
+    data["yaml_written"] = True
+    data.pop("yaml_removed", None)
     _async_check_loader(hass)
 
 
@@ -152,6 +158,48 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
     )
     data.update(active=True, url=url)
     _async_check_loader(hass)
+
+
+async def async_door_added(hass: HomeAssistant) -> None:
+    """A door was set up: make sure the loader file exists and the notice is right."""
+    if hass.data.get(_KEY, {}).get("yaml_removed"):
+        try:
+            await hass.async_add_executor_job(
+                _write_loader, Path(hass.config.path("www", "portier", "loader.js"))
+            )
+        except OSError:
+            _LOGGER.warning("Portier: Lader konnte nicht geschrieben werden", exc_info=True)
+    _async_check_loader(hass)
+
+
+async def async_remove_loader(hass: HomeAssistant) -> None:
+    """Undo the one-time setup: configuration.yaml line, loader file, notices."""
+    ir.async_delete_issue(hass, DOMAIN, ISSUE_MISSING)
+    ir.async_delete_issue(hass, DOMAIN, ISSUE_RESTART)
+    data = hass.data.setdefault(_KEY, {})
+    data.pop("yaml_written", None)
+    data["yaml_removed"] = True
+
+    def _remove() -> bool:
+        changed = False
+        try:
+            changed = uninstall_loader(Path(hass.config.path("configuration.yaml")))
+        except (CannotEdit, OSError) as err:
+            _LOGGER.warning(
+                "Portier: Zeile %s bitte selbst aus configuration.yaml entfernen (%s)",
+                LOADER_URL,
+                err,
+            )
+        folder = Path(hass.config.path("www", "portier"))
+        (folder / "loader.js").unlink(missing_ok=True)
+        try:
+            folder.rmdir()
+        except OSError:
+            pass  # not empty or already gone
+        return changed
+
+    if await hass.async_add_executor_job(_remove):
+        _LOGGER.info("Portier: Lader aus configuration.yaml entfernt (gilt nach Neustart)")
 
 
 @callback

@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.6.3";
+const VERSION = "1.6.4";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -73,6 +73,17 @@ class Chime {
     }
   }
 
+  /** For buttons: wake the audio first (a fresh page starts it suspended), then play. */
+  async playNow(kind = "dingdong", volume = 70) {
+    this.unlock();
+    try {
+      await Promise.race([this.ctx?.resume(), new Promise((r) => setTimeout(r, 500))]);
+    } catch {
+      /* blocked */
+    }
+    return this.play(kind, volume);
+  }
+
   /** Two (or three) soft bell partials. Returns false if the browser blocks audio. */
   play(kind = "dingdong", volume = 70) {
     if (kind === "off") return true;
@@ -103,6 +114,21 @@ class Chime {
     }
     return true;
   }
+}
+
+/** A "play sound" button that says what it is doing, like the test ring button. */
+async function soundButton(btn, kind, volume) {
+  if (btn.disabled) return false;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "♪ Spielt …";
+  const ok = await ctrl.chime.playNow(kind === "off" ? "dingdong" : kind, volume);
+  if (!ok) btn.textContent = "Ton blockiert";
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = label;
+  }, ok ? 1800 : 2500);
+  return ok;
 }
 
 /* ------------------------------------------------------------------- camera */
@@ -1370,10 +1396,9 @@ class PortierEditor extends HTMLElement {
     });
     const vol = q("[name=volume]");
     vol.addEventListener("input", () => (vol.nextElementSibling.value = `${vol.value} %`));
-    q("[data-act=preview]").addEventListener("click", () => {
-      const kind = q("[name=sound]").value;
-      ctrl.chime.play(kind === "off" ? "dingdong" : kind, Number(vol.value));
-    });
+    q("[data-act=preview]").addEventListener("click", (e) =>
+      soundButton(e.currentTarget, q("[name=sound]").value, Number(vol.value)),
+    );
     const del = q("[data-act=delete]");
     del?.addEventListener("click", async () => {
       if (!del.classList.contains("armed")) {
@@ -1563,9 +1588,9 @@ class PortierPanel extends HTMLElement {
       sw.checked = settings[sw.dataset.k];
       sw.addEventListener("change", () => saveDeviceSettings({ ...deviceSettings(), [sw.dataset.k]: sw.checked }));
     });
-    this.$("[data-act=sound-test]").addEventListener("click", () => {
+    this.$("[data-act=sound-test]").addEventListener("click", async (e) => {
       const door = [...ctrl.doors.values()][0];
-      ctrl.chime.play(door?.sound === "off" ? "dingdong" : door?.sound, door?.volume ?? 70);
+      await soundButton(e.currentTarget, door?.sound || "dingdong", door?.volume ?? 70);
       this.renderSoundState();
     });
     this.$("[data-act=add]").addEventListener("click", () => this.edit(null));

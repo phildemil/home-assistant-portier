@@ -543,3 +543,36 @@ async def test_config_flow_telegram_picker(hass: HomeAssistant) -> None:
     assert result["options"]["telegram_targets"] == "12345, -99"
     # Loader not active yet: the finish dialog says what is still missing.
     assert result["description"] == "loader_pending"
+
+
+async def test_removing_last_door_removes_loader(hass: HomeAssistant, tmp_path, monkeypatch) -> None:
+    from pathlib import Path
+
+    from homeassistant.helpers import issue_registry as ir
+
+    cfg = tmp_path / "configuration.yaml"
+    cfg.write_text("default_config:\nfrontend:\n  extra_module_url:\n    - /local/portier/loader.js\n")
+    real_path = hass.config.path
+    monkeypatch.setattr(hass.config, "path", lambda *p: str(cfg) if p == ("configuration.yaml",) else real_path(*p))
+    first = await _setup(hass)
+    second = MockConfigEntry(domain=DOMAIN, title="Garten", options={**BASE, "name": "Garten"})
+    second.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+    loader = Path(hass.config.path("www", "portier", "loader.js"))
+    assert loader.exists()
+
+    # One door left: nothing is touched.
+    await hass.config_entries.async_remove(first.entry_id)
+    await hass.async_block_till_done()
+    assert "/local/portier/loader.js" in cfg.read_text()
+
+    # Last door gone: line and loader file are removed again.
+    await hass.config_entries.async_remove(second.entry_id)
+    await hass.async_block_till_done()
+    assert "/local/portier/loader.js" not in cfg.read_text()
+    assert not loader.exists()
+
+    # A new door right away (no restart) gets the repair notice again.
+    await _setup(hass)
+    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is not None

@@ -19,7 +19,7 @@ from .const import (
     PLATFORMS,
     SIGNAL_UPDATE,
 )
-from .frontend import async_register_frontend
+from .frontend import async_door_added, async_register_frontend, async_remove_loader
 from .manager import PortierDoor, all_doors, door_for
 from .websocket import async_register_websocket
 
@@ -87,6 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> b
     door = PortierDoor(hass, entry)
     await door.async_setup()
     entry.runtime_data = door
+    await async_door_added(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_dispatcher_send(hass, SIGNAL_UPDATE, entry.entry_id)
     return True
@@ -101,3 +102,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> 
     return ok
 
 
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> None:
+    """Last door removed: take Portier's line out of configuration.yaml again."""
+    others = [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]
+    if not others:
+        await async_remove_loader(hass)

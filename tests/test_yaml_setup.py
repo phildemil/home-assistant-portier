@@ -10,6 +10,8 @@ from custom_components.portier.yaml_setup import (
     CannotEdit,
     add_loader,
     install_loader,
+    remove_loader,
+    uninstall_loader,
 )
 
 
@@ -92,3 +94,38 @@ def test_install_restores_backup_when_result_invalid(tmp_path: Path):
     with pytest.raises(CannotEdit):
         install_loader(cfg)
     assert cfg.read_text() == src
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "default_config:\n\nhomeassistant:\n  name: Haus\n",
+        "default_config:\nfrontend:\n  themes: !include_dir_merge_named themes\nautomation: !include automations.yaml\n",
+        "frontend:\n  extra_module_url:\n    - /local/card-mod.js\nsensor:\n  - platform: time_date\n",
+        "default_config:\r\nfrontend:\r\n  themes: !include_dir_merge_named themes\r\n",
+    ],
+)
+def test_remove_undoes_add(src):
+    out = remove_loader(add_loader(src))
+    assert LOADER_URL not in out
+    assert out.strip() == src.strip()
+
+
+def test_remove_keeps_other_modules():
+    src = "frontend:\n  extra_module_url:\n    - /local/card-mod.js\n    - /local/portier/loader.js\n"
+    assert _modules(remove_loader(src)) == ["/local/card-mod.js"]
+
+
+def test_remove_inline_list_is_left_alone():
+    with pytest.raises(CannotEdit):
+        remove_loader("frontend:\n  extra_module_url: [/local/portier/loader.js]\n")
+
+
+def test_uninstall_with_backup(tmp_path: Path):
+    cfg = tmp_path / "configuration.yaml"
+    cfg.write_text("default_config:\n")
+    install_loader(cfg)
+    assert uninstall_loader(cfg) is True
+    assert LOADER_URL not in cfg.read_text()
+    assert (tmp_path / "configuration.yaml.portier-backup").exists()
+    assert uninstall_loader(cfg) is False
