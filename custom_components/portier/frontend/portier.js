@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.8.0";
+const VERSION = "1.8.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1149,7 +1149,7 @@ class PortierOverlay extends HTMLElement {
     line.classList.toggle("opened", !!v.opened);
     line.firstElementChild.style.transform = `scaleX(${Math.max(0, Math.min(1, left / v.total))})`;
     // How long the picture stays is shown by the line at the bottom only.
-    const status = v.opened ? "<b>Tür geöffnet</b>" : door.ring_count > 1 ? `${door.ring_count}× geklingelt` : "";
+    const status = v.opened ? "<b>Tür geöffnet</b>" : "";
     const box = el.querySelector(".status");
     if (box.innerHTML !== status) box.innerHTML = status;
   }
