@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.8";
+const VERSION = "1.9.9";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1222,7 +1222,7 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .ent .combo input{padding-right:40px}
 .ent .drop{position:absolute;right:2px;top:2px;bottom:2px;width:38px;border:0;background:none;color:var(--pt-muted);font-size:16px;cursor:pointer;border-radius:8px}
 .ent .drop:hover{color:var(--pt-ink)}
-.ent .dd{position:absolute;z-index:5;left:0;right:0;top:calc(100% + 4px);margin:0;padding:4px;list-style:none;max-height:260px;overflow:auto;
+.ent .dd{position:absolute;z-index:5;left:0;right:0;top:calc(100% + 4px);margin:0;padding:4px;list-style:none;text-align:left;max-height:260px;overflow:auto;
   background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px;box-shadow:0 10px 30px #000a}
 .ent .dd[hidden],.ent .dd li[hidden]{display:none}
 .ent .dd li{display:grid;padding:7px 10px;border-radius:7px;cursor:pointer;gap:1px}
@@ -1230,8 +1230,8 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .ent .dd li small{font-size:12px;color:var(--pt-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ent .dd li.hi{background:#ffffff12}
 .ent .dd li.cur b{color:var(--pt-brass-hi)}
+.ent .dd li.empty{color:var(--pt-muted);font-style:italic;font-size:14px}
 .ent .dd li.none{color:var(--pt-muted);cursor:default;font-size:13px}
-.ent .clear{border:1px solid var(--pt-edge);background:none;border-radius:10px;width:44px;flex:none;color:var(--pt-muted);font-size:18px}
 .ent-name{font-size:12px;color:var(--pt-verdigris)}
 .ent-name.missing{color:var(--pt-alert)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -1353,9 +1353,8 @@ class PortierEditor extends HTMLElement {
             role="combobox" aria-expanded="false" aria-label="${esc(label)}"
             placeholder="Tippen zum Suchen …" ${required ? "required" : ""}>
           <button type="button" class="drop" tabindex="-1" aria-label="Liste zeigen" title="Alle zeigen">▾</button>
-          <ul class="dd" role="listbox" hidden>${opts}<li class="none" hidden>Nichts gefunden</li></ul>
+          <ul class="dd" role="listbox" hidden>${required ? "" : `<li class="empty" data-id="" data-q="">Keine</li>`}${opts}<li class="none" hidden>Nichts gefunden</li></ul>
         </div>
-        <button type="button" class="clear" aria-label="${esc(label)} leeren" title="Leeren und neu suchen">×</button>
       </div>
       <span class="ent-name"></span>
       ${help ? `<small>${help}</small>` : ""}
@@ -1507,14 +1506,16 @@ class PortierEditor extends HTMLElement {
       const none = dd.querySelector(".none");
       let hi = null;
       const shown = () => items.filter((li) => !li.hidden);
-      const mark = (li) => {
+      const mark = (li, scroll = true) => {
         hi?.classList.remove("hi");
         hi = li;
         if (li) {
           li.classList.add("hi");
-          li.scrollIntoView({ block: "nearest" });
+          if (scroll) li.scrollIntoView({ block: "nearest" });
         }
       };
+      // The editor lives in the panel's shadow root: document.activeElement is the panel there.
+      const focused = () => inp.getRootNode().activeElement === inp;
       // Show the list: everything (arrow, click, focus) or only what matches the typed text.
       const open = (filter) => {
         const words = (filter || "").toLowerCase().split(/\s+/).filter(Boolean);
@@ -1549,7 +1550,7 @@ class PortierEditor extends HTMLElement {
         open("");
       });
       inp.addEventListener("click", () => dd.hidden && open(""));
-      inp.addEventListener("blur", () => setTimeout(() => document.activeElement !== inp && close(), 150));
+      inp.addEventListener("blur", () => setTimeout(() => !focused() && close(), 150));
       inp.addEventListener("keydown", (e) => {
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           e.preventDefault();
@@ -1573,20 +1574,19 @@ class PortierEditor extends HTMLElement {
         const li = e.target.closest("li[data-id]");
         if (li) pick(li);
       });
+      // The entry under the mouse is the marked one (Enter picks it).
+      dd.addEventListener("mouseover", (e) => {
+        const li = e.target.closest("li[data-id]");
+        if (li && li !== hi) mark(li, false);
+      });
       const drop = field.querySelector(".drop");
       drop.addEventListener("mousedown", (e) => e.preventDefault());
       drop.addEventListener("click", () => {
         if (!dd.hidden) return close();
-        if (document.activeElement !== inp) inp.focus();
-        else open("");
-      });
-      update();
-      field.querySelector(".clear")?.addEventListener("click", () => {
-        inp.value = "";
-        update();
-        inp.focus();
+        if (!focused()) inp.focus();
         open("");
       });
+      update();
     });
     // NFC fields only while the switch is on.
     const nfcOn = q("[name=nfc_on]");
