@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.3";
+const VERSION = "1.9.4";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -127,6 +127,20 @@ const OPEN_VIA = {
   button: "Taste in Home Assistant",
   service: "Aktion portier.open",
 };
+/** "Heute 17:16:27", "Gestern 14:56:54", "Fr 20.11. 12:59:32" (year added if not this year). */
+function when(iso) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(new Date()) - day(d)) / 86400000);
+  if (days === 0) return `Heute ${time}`;
+  if (days === 1) return `Gestern ${time}`;
+  const wd = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()];
+  const dd = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`;
+  const yy = d.getFullYear() === new Date().getFullYear() ? "" : String(d.getFullYear());
+  return `${wd} ${dd}${yy} ${time}`;
+}
+
 /** Which button rang (its name, entity id as tooltip) or who pressed "Testklingel". */
 const ringWho = (r) =>
   r.source === "test"
@@ -1943,7 +1957,7 @@ class PortierPanel extends HTMLElement {
       ? door.history
           .map(
             (r) =>
-              `<li>${esc(new Date(r.time).toLocaleString([], { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }))}<span>${ringWho(r)}</span></li>`,
+              `<li>${esc(when(r.time))}<span>${ringWho(r)}</span></li>`,
           )
           .join("")
       : `<li><span>Seit dem letzten Neustart hat niemand geklingelt.</span></li>`;
@@ -1956,7 +1970,7 @@ class PortierPanel extends HTMLElement {
       ? opens
           .map(
             (r) =>
-              `<li>${esc(new Date(r.time).toLocaleString([], { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }))}<span><b>${esc(openWho(r))}</b> · ${esc(OPEN_VIA[r.via] || r.via)}</span></li>`,
+              `<li>${esc(when(r.time))}<span><b>${esc(openWho(r))}</b> · ${esc(OPEN_VIA[r.via] || r.via)}</span></li>`,
           )
           .join("")
       : `<li><span>Noch nie über Portier geöffnet.</span></li>`;
