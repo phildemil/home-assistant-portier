@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.1";
+const VERSION = "1.9.2";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1319,7 +1319,7 @@ class PortierEditor extends HTMLElement {
       <div class="ent">
         <input type="text" name="${key}" list="dl-${key}" value="${esc(value || "")}" autocomplete="off" spellcheck="false"
           placeholder="Tippen zum Suchen …" ${required ? "required" : ""}>
-        ${required ? "" : `<button type="button" class="clear" aria-label="${esc(label)} leeren">×</button>`}
+        <button type="button" class="clear" aria-label="${esc(label)} leeren" title="Leeren und neu suchen">×</button>
       </div>
       <datalist id="dl-${key}">${opts}</datalist>
       <span class="ent-name"></span>
@@ -1467,6 +1467,9 @@ class PortierEditor extends HTMLElement {
         out.classList.toggle("missing", !!id && !st);
       };
       inp.addEventListener("input", update);
+      // Clicking into a filled field selects its text: typing replaces it and the
+      // suggestion list shows all matches again instead of only the current entity.
+      inp.addEventListener("focus", () => setTimeout(() => inp.select(), 0));
       update();
       inp.closest(".f").querySelector(".clear")?.addEventListener("click", () => {
         inp.value = "";
