@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.5";
+const VERSION = "1.9.6";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -146,9 +146,9 @@ const ringWho = (r) =>
   r.source === "test"
     ? [r.who || "Automation", "Testklingel"]
     : [r.who || r.entity || "Klingeltaster", r.who && r.entity ? r.entity : "Klingeltaster"];
-/** One history row as three aligned columns: time · name · way. */
+/** One history row as aligned columns: time · way · name (name on the right). */
 const histRow = (time, name, detail) =>
-  `<li><time>${esc(time)}</time><b>${esc(name)}</b><span title="${esc(detail)}">${esc(detail)}</span></li>`;
+  `<li><time>${esc(time)}</time><span title="${esc(detail)}">${esc(detail)}</span><b>${esc(name)}</b></li>`;
 const openWho = (r) => r.who || (["button", "service"].includes(r.via) ? "Automation" : "Unbekannt");
 
 /** A "play sound" button that says what it is doing, like the test ring button. */
@@ -1653,9 +1653,9 @@ class PortierPanel extends HTMLElement {
       .actions{display:flex;gap:8px;flex-wrap:wrap}
       details{border-top:1px solid var(--pt-edge);margin:0 18px;padding:10px 0 14px}
       summary{cursor:pointer;font-size:14px;color:var(--pt-muted)}
-      /* time · name · way as aligned columns across all rows */
-      ol{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:minmax(10em,max-content) minmax(7em,max-content) minmax(0,1fr);
-        gap:4px 18px;font-size:14px;font-variant-numeric:tabular-nums}
+      /* time · way · name as aligned columns; names line up on the right in both lists */
+      ol{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:minmax(8.6em,max-content) minmax(0,1fr) minmax(6.5em,max-content);
+        gap:4px 12px;font-size:14px;font-variant-numeric:tabular-nums}
       ol li{display:contents;color:var(--pt-ink)}
       ol li b{font-weight:600}
       ol li span{color:var(--pt-muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
