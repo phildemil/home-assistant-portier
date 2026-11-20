@@ -16,8 +16,8 @@
           "trigger_entity": "Was beim Klingeln auslöst: Binärsensor, Event-Entität (z. B. Shelly-Eingang), Taste, Schalter oder Helfer.",
           "camera_entity": "Jede Kamera, die in Home Assistant läuft.",
           "opener_entity": "Jedes Relais (Schalter, Licht, Helfer) bekommt einen Impuls. Schloss = öffnen, Taste = drücken, Skript = ausführen, Tor = öffnen.",
-          "contact_entity": "Optional: zeigt an, ob die Tür offen ist.",
-          "gong_entity": "Optional: ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
+          "contact_entity": "Zeigt an, ob die Tür offen ist.",
+          "gong_entity": "Ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
         }
       },
       "notify": {
@@ -61,8 +61,8 @@
           "trigger_entity": "Was beim Klingeln auslöst: Binärsensor, Event-Entität (z. B. Shelly-Eingang), Taste, Schalter oder Helfer.",
           "camera_entity": "Jede Kamera, die in Home Assistant läuft.",
           "opener_entity": "Jedes Relais (Schalter, Licht, Helfer) bekommt einen Impuls. Schloss = öffnen, Taste = drücken, Skript = ausführen, Tor = öffnen.",
-          "contact_entity": "Optional: zeigt an, ob die Tür offen ist.",
-          "gong_entity": "Optional: ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
+          "contact_entity": "Zeigt an, ob die Tür offen ist.",
+          "gong_entity": "Ein echter Gong, der bei jedem Klingeln kurz angesteuert wird."
         },
         "sections": {
           "notifications": {

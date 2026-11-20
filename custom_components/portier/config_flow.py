@@ -200,9 +200,7 @@ def _device_fields(values: dict[str, Any], with_name: bool) -> dict:
     fields: dict = {}
     if with_name:
         fields[vol.Required(CONF_NAME, default=values.get(CONF_NAME, "Haustür"))] = TextSelector()
-    fields[
-        vol.Required(CONF_TRIGGER, description={"suggested_value": values.get(CONF_TRIGGER)})
-    ] = _entity(TRIGGER_DOMAINS)
+    fields[_opt(CONF_TRIGGER, values)] = _entity(TRIGGER_DOMAINS)
     fields[_opt(CONF_CAMERA, values)] = _entity(["camera"])
     fields[_opt(CONF_OPENER, values)] = _entity(OPENER_DOMAINS)
     fields[_opt(CONF_CONTACT, values)] = _entity(CONTACT_DOMAINS)
@@ -330,7 +328,7 @@ def _list_of_str(value: Any) -> list[str]:
 PANEL_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_NAME): vol.All(str, vol.Strip, vol.Length(min=1, max=60)),
-        vol.Required(CONF_TRIGGER): _domain_entity(TRIGGER_DOMAINS),
+        vol.Optional(CONF_TRIGGER): _domain_entity(TRIGGER_DOMAINS),
         vol.Optional(CONF_CAMERA): _domain_entity(["camera"]),
         vol.Optional(CONF_OPENER): _domain_entity(OPENER_DOMAINS),
         vol.Optional(CONF_CONTACT): _domain_entity(CONTACT_DOMAINS),

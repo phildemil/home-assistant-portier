@@ -16,8 +16,8 @@
           "trigger_entity": "What fires when someone rings: binary sensor, event entity (e.g. Shelly input), button, switch or helper.",
           "camera_entity": "Any camera that works in Home Assistant.",
           "opener_entity": "Any relay (switch, light, helper) gets a pulse. Lock = open, button = press, script = run, cover = open.",
-          "contact_entity": "Optional: shows whether the door is open.",
-          "gong_entity": "Optional: a physical chime pulsed on every ring."
+          "contact_entity": "Shows whether the door is open.",
+          "gong_entity": "A physical chime pulsed on every ring."
         }
       },
       "notify": {
@@ -61,8 +61,8 @@
           "trigger_entity": "What fires when someone rings: binary sensor, event entity (e.g. Shelly input), button, switch or helper.",
           "camera_entity": "Any camera that works in Home Assistant.",
           "opener_entity": "Any relay (switch, light, helper) gets a pulse. Lock = open, button = press, script = run, cover = open.",
-          "contact_entity": "Optional: shows whether the door is open.",
-          "gong_entity": "Optional: a physical chime pulsed on every ring."
+          "contact_entity": "Shows whether the door is open.",
+          "gong_entity": "A physical chime pulsed on every ring."
         },
         "sections": {
           "notifications": {

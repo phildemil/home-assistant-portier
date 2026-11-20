@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.9.9";
+const VERSION = "1.10.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1334,7 +1334,7 @@ class PortierEditor extends HTMLElement {
     if (!entryId) this.querySelector("[name=name]").focus();
   }
 
-  entityField(key, label, domains, value, help = "", required = false) {
+  entityField(key, label, domains, value, help = "") {
     const list = Object.values(this.hass.states)
       .filter((s) => domains.includes(s.entity_id.split(".")[0]))
       .sort((a, b) => (a.attributes.friendly_name || a.entity_id).localeCompare(b.attributes.friendly_name || b.entity_id));
@@ -1346,14 +1346,14 @@ class PortierEditor extends HTMLElement {
       })
       .join("");
     return `<div class="f" data-f="${key}">
-      <span>${esc(label)}${required ? "" : ` <small>(optional)</small>`}</span>
+      <span>${esc(label)}</span>
       <div class="ent">
         <div class="combo">
           <input type="text" name="${key}" value="${esc(value || "")}" autocomplete="off" spellcheck="false"
             role="combobox" aria-expanded="false" aria-label="${esc(label)}"
-            placeholder="Tippen zum Suchen …" ${required ? "required" : ""}>
+            placeholder="Tippen zum Suchen …">
           <button type="button" class="drop" tabindex="-1" aria-label="Liste zeigen" title="Alle zeigen">▾</button>
-          <ul class="dd" role="listbox" hidden>${required ? "" : `<li class="empty" data-id="" data-q="">Keine</li>`}${opts}<li class="none" hidden>Nichts gefunden</li></ul>
+          <ul class="dd" role="listbox" hidden><li class="empty" data-id="" data-q="">Keine</li>${opts}<li class="none" hidden>Nichts gefunden</li></ul>
         </div>
       </div>
       <span class="ent-name"></span>
@@ -1418,7 +1418,7 @@ class PortierEditor extends HTMLElement {
           <label class="f" data-f="name"><span>Name der Tür</span>
             <input type="text" name="name" value="${esc(v.name)}" placeholder="z. B. Haustür" required maxlength="60"></label>
           ${this.entityField("trigger_entity", "Klingeltaster", DOMAINS.trigger, v.trigger_entity,
-            "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.", true)}
+            "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.")}
           ${this.entityField("camera_entity", "Kamera", DOMAINS.camera, v.camera_entity)}
           ${this.entityField("opener_entity", "Türöffner", DOMAINS.opener, v.opener_entity,
             "Relais, Schalter oder Helfer bekommen einen Impuls. Schloss wird geöffnet, Taste gedrückt, Skript ausgeführt.")}

@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -314,6 +315,15 @@ async def test_panel_create_edit_delete(hass: HomeAssistant, hass_ws_client) -> 
     assert (await client.receive_json())["success"]
     await hass.async_block_till_done()
     assert hass.config_entries.async_get_entry(new_id) is None
+
+    # every device is optional: a door with only a name (e.g. a gate without bell button)
+    await client.send_json({"id": 7, "type": "portier/door/save", "options": {"name": "Garten"}})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    await hass.async_block_till_done()
+    garden = hass.config_entries.async_get_entry(msg["result"]["entry_id"])
+    assert garden.state is ConfigEntryState.LOADED
+    assert garden.options["trigger_entity"] is None
 
 
 async def test_panel_edit_requires_admin(hass: HomeAssistant, hass_ws_client, hass_read_only_access_token) -> None:
