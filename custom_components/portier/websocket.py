@@ -99,7 +99,12 @@ def ws_subscribe(
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): f"{DOMAIN}/open", vol.Required("entry_id"): str}
+    {
+        vol.Required("type"): f"{DOMAIN}/open",
+        vol.Required("entry_id"): str,
+        # Which kind of device pressed the button (shown in the history and live view).
+        vol.Optional("client"): vol.In(["ha_app", "browser"]),
+    }
 )
 @websocket_api.async_response
 async def ws_open(
@@ -114,7 +119,7 @@ async def ws_open(
         connection.send_error(msg["id"], "unauthorized", "Keine Berechtigung zum Öffnen")
         return
     try:
-        await door.async_open(context=connection.context(msg), via="app")
+        await door.async_open(context=connection.context(msg), via=msg.get("client", "app"))
     except (HomeAssistantError, TimeoutError) as err:
         connection.send_error(msg["id"], "open_failed", str(err) or "Öffnen fehlgeschlagen")
         return

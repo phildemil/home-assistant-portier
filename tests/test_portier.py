@@ -262,6 +262,19 @@ async def test_websocket_subscribe_and_open(hass: HomeAssistant, hass_ws_client)
             break
     assert msg["success"]
     assert hass.states.get("input_boolean.oeffner").state == "on"
+    # Without a client the old generic "app" is kept.
+    assert entry.runtime_data.snapshot(True)["opens"][0]["via"] == "app"
+
+    # The live view names the kind of device that pressed the button.
+    await client.send_json({"id": 3, "type": "portier/open", "entry_id": entry.entry_id, "client": "ha_app"})
+    while True:
+        msg = await client.receive_json()
+        if msg.get("id") == 3 and msg["type"] == "result":
+            break
+    assert msg["success"]
+    snap = entry.runtime_data.snapshot(True)
+    assert snap["opens"][0]["via"] == "ha_app"
+    assert snap["opens"][0]["time"] == snap["last_opened"]
 
 
 async def test_unload_switches_off(hass: HomeAssistant) -> None:

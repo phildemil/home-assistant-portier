@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.11.3";
+const VERSION = "1.12.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -121,6 +121,8 @@ class Chime {
 /** Where a door opening came from, for the opener history. */
 const OPEN_VIA = {
   app: "Home Assistant",
+  ha_app: "Home-Assistant-App",
+  browser: "Browser",
   push: "Push-Nachricht",
   nfc: "NFC an der Tür",
   telegram: "Telegram",
@@ -149,6 +151,12 @@ const ringWho = (r) =>
 /** One history row as aligned columns: time · way · name (name on the right). */
 const histRow = (time, name, detail) =>
   `<li><time>${esc(time)}</time><span title="${esc(detail)}">${esc(detail)}</span><b>${esc(name)}</b></li>`;
+/** " · von phil über Telegram" for the newest opening, if the history has it. */
+function openedBy(door) {
+  const r = door.opens?.[0];
+  if (!r || (door.last_opened && r.time !== door.last_opened)) return "";
+  return ` · von ${esc(openWho(r))} über ${esc(OPEN_VIA[r.via] || r.via)}`;
+}
 const openWho = (r) => r.who || (["button", "service"].includes(r.via) ? "Automation" : "Unbekannt");
 
 /** A "play sound" button that says what it is doing, like the test ring button. */
@@ -910,7 +918,9 @@ class PortierController {
 
   async open(entryId) {
     try {
-      await this.callWS({ type: "portier/open", entry_id: entryId });
+      // The Home Assistant app exposes a bridge to its web view; a plain browser does not.
+      const client = window.externalApp || window.webkit?.messageHandlers?.externalBus ? "ha_app" : "browser";
+      await this.callWS({ type: "portier/open", entry_id: entryId, client });
     } catch (err) {
       throw new Error(err?.message || "Öffnen fehlgeschlagen");
     }
@@ -1165,7 +1175,7 @@ class PortierOverlay extends HTMLElement {
     line.classList.toggle("opened", !!v.opened);
     line.firstElementChild.style.transform = `scaleX(${Math.max(0, Math.min(1, left / v.total))})`;
     // How long the picture stays is shown by the line at the bottom only.
-    const status = v.opened ? "<b>Tür geöffnet</b>" : "";
+    const status = v.opened ? `<b>Tür geöffnet</b>${openedBy(door)}` : "";
     const box = el.querySelector(".status");
     if (box.innerHTML !== status) box.innerHTML = status;
   }
