@@ -35,6 +35,8 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   (`--primary-color`/`--accent-color` des HA-Designs) / Eigene; gilt für alle Geräte, kommt im Snapshot
   (`look`) und wird als CSS-Variablen `--pt-brass*`/`--pt-verdigris*` auf Overlay und Panel gesetzt.
 - Verläufe: Klingelverlauf (Taster/Person) und Türöffner-Verlauf (wer, Weg), beide im Store (je 50).
+  Wortwahl „Weg“: Livebild, Push- und Telegram-Meldung sagen für Push und HA-App kurz „App“;
+  nur der Türöffner-Verlauf ist genau (Push-Nachricht / Home-Assistant-App / Browser).
 
 ## Wichtige Entscheidungen des Benutzers (nicht wieder ändern)
 - Allgemein bauen: jedes Relais, jede Kamera, keine Shelly-Sonderlogik.

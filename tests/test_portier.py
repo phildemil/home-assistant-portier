@@ -547,7 +547,7 @@ async def test_push_shows_opened(hass: HomeAssistant) -> None:
         assert done["data"]["importance"] == "low"
         assert done["data"]["push"]["interruption-level"] == "passive"
         assert done["title"].startswith("✅")
-        assert "Tür geöffnet" in done["message"] and "App-Benachrichtigung" in done["message"]
+        assert "Tür geöffnet" in done["message"] and "über die App" in done["message"]
     # Nothing more later: no expiry note, no second replacement.
     await entry.runtime_data.async_open(via="app")
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
