@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.13.0";
+const VERSION = "1.13.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1904,7 +1904,7 @@ class PortierPanel extends HTMLElement {
           </select></label>
         <label class="row" data-custom>Hauptfarbe<input type="color" data-look="accent"></label>
         <label class="row" data-custom>Zweitfarbe<input type="color" data-look="accent2"></label>
-        <div class="row"><span class="look-state"></span><button class="quiet" data-act="look-reset">Auf Standard zurücksetzen</button></div>
+        <span class="look-state"></span>
       </section>
     </main>`;
     this.$ = (s) => root.querySelector(s);
@@ -1955,7 +1955,6 @@ class PortierPanel extends HTMLElement {
       });
       field(k).addEventListener("change", () => save(current()));
     }
-    box.querySelector("[data-act=look-reset]").addEventListener("click", () => save({ mode: "default" }));
   }
 
   renderLook() {
@@ -1970,7 +1969,6 @@ class PortierPanel extends HTMLElement {
     if (active !== field("accent")) field("accent").value = toHex(look.accent) || LOOK_DEFAULT.accent.toLowerCase();
     if (active !== field("accent2")) field("accent2").value = toHex(look.accent2) || LOOK_DEFAULT.accent2.toLowerCase();
     for (const row of box.querySelectorAll("[data-custom]")) row.hidden = look.mode !== "custom";
-    box.querySelector("[data-act=look-reset]").disabled = look.mode === "default";
   }
 
   get isAdmin() {
