@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.12.3";
+const VERSION = "1.12.4";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -922,7 +922,9 @@ class PortierController {
   async open(entryId) {
     try {
       // The Home Assistant app exposes a bridge to its web view; a plain browser does not.
-      const client = window.externalApp || window.webkit?.messageHandlers?.externalBus ? "ha_app" : "browser";
+      // (The server also recognises the app by its login, which is the reliable part.)
+      const bridge = window.externalApp || window.externalAppV2 || window.webkit?.messageHandlers?.externalBus;
+      const client = bridge || rootHass()?.auth?.external ? "ha_app" : "browser";
       await this.callWS({ type: "portier/open", entry_id: entryId, client });
     } catch (err) {
       throw new Error(err?.message || "Öffnen fehlgeschlagen");

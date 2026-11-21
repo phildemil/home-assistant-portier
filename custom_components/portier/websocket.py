@@ -98,6 +98,24 @@ def ws_subscribe(
     send(snapshot())
 
 
+# The Home Assistant phone apps sign in with these client ids (Android, iOS, macOS).
+COMPANION_CLIENT = "https://home-assistant.io/"
+
+
+def _client_kind(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, hint: str | None
+) -> str:
+    """Home Assistant app or browser? The login of the connection tells it reliably."""
+    token_id = getattr(connection, "refresh_token_id", None)
+    token = hass.auth.async_get_refresh_token(token_id) if token_id else None
+    client_id = (token.client_id or "") if token else ""
+    if client_id.startswith(COMPANION_CLIENT):
+        return "ha_app"
+    if hint:
+        return hint
+    return "browser" if client_id else "app"
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/open",
@@ -119,7 +137,7 @@ async def ws_open(
         connection.send_error(msg["id"], "unauthorized", "Keine Berechtigung zum Öffnen")
         return
     try:
-        await door.async_open(context=connection.context(msg), via=msg.get("client", "app"))
+        await door.async_open(context=connection.context(msg), via=_client_kind(hass, connection, msg.get("client")))
     except (HomeAssistantError, TimeoutError) as err:
         connection.send_error(msg["id"], "open_failed", str(err) or "Öffnen fehlgeschlagen")
         return

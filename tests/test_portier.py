@@ -262,8 +262,8 @@ async def test_websocket_subscribe_and_open(hass: HomeAssistant, hass_ws_client)
             break
     assert msg["success"]
     assert hass.states.get("input_boolean.oeffner").state == "on"
-    # Without a client the old generic "app" is kept.
-    assert entry.runtime_data.snapshot(True)["opens"][0]["via"] == "app"
+    # Without a hint, a normal (non-app) login counts as browser.
+    assert entry.runtime_data.snapshot(True)["opens"][0]["via"] == "browser"
 
     # The live view names the kind of device that pressed the button.
     await client.send_json({"id": 3, "type": "portier/open", "entry_id": entry.entry_id, "client": "ha_app"})
@@ -275,6 +275,24 @@ async def test_websocket_subscribe_and_open(hass: HomeAssistant, hass_ws_client)
     snap = entry.runtime_data.snapshot(True)
     assert snap["opens"][0]["via"] == "ha_app"
     assert snap["opens"][0]["time"] == snap["last_opened"]
+
+
+async def test_open_from_phone_app_login(hass: HomeAssistant, hass_ws_client, hass_admin_user) -> None:
+    """The Android/iOS app is recognised by its login, even if the page sends "browser"."""
+    entry = await _setup(hass)
+    refresh = await hass.auth.async_create_refresh_token(
+        hass_admin_user, "https://home-assistant.io/android"
+    )
+    client = await hass_ws_client(hass, hass.auth.async_create_access_token(refresh))
+    await client.send_json(
+        {"id": 1, "type": "portier/open", "entry_id": entry.entry_id, "client": "browser"}
+    )
+    while True:
+        msg = await client.receive_json()
+        if msg.get("id") == 1 and msg["type"] == "result":
+            break
+    assert msg["success"], msg
+    assert entry.runtime_data.snapshot(True)["opens"][0]["via"] == "ha_app"
 
 
 async def test_unload_switches_off(hass: HomeAssistant) -> None:
