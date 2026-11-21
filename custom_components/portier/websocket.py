@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util, slugify
 
 from .config_flow import panel_options, telegram_chats
 from .const import DEFAULTS, DOMAIN, SIGNAL_DISMISS, SIGNAL_RING, SIGNAL_UPDATE
+from .look import async_save_look, current_look
 from .manager import PortierDoor, all_doors, door_for
 
 
@@ -38,6 +39,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_config)
     websocket_api.async_register_command(hass, ws_door_save)
     websocket_api.async_register_command(hass, ws_door_delete)
+    websocket_api.async_register_command(hass, ws_look_save)
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/subscribe"})
@@ -57,6 +59,7 @@ def ws_subscribe(
             "type": "snapshot",
             "server_time": dt_util.utcnow().isoformat(),
             "frontend": hass.data.get(f"{DOMAIN}_frontend", {}).get("url"),
+            "look": current_look(hass),
             "doors": [d.snapshot(is_admin) for d in all_doors(hass) if _visible(connection, d)],
         }
 
@@ -293,3 +296,26 @@ async def ws_door_delete(
         return
     await hass.config_entries.async_remove(entry.entry_id)
     connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/look/save",
+        vol.Required("mode"): str,
+        vol.Optional("accent"): str,
+        vol.Optional("accent2"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_look_save(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """The two accent colors, the same on every device."""
+    raw = {k: msg[k] for k in ("mode", "accent", "accent2") if k in msg}
+    try:
+        look = await async_save_look(hass, raw)
+    except vol.Invalid as err:
+        connection.send_error(msg["id"], "invalid", str(err))
+        return
+    connection.send_result(msg["id"], look)

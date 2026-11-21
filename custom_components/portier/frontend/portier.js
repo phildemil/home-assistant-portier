@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.12.4";
+const VERSION = "1.13.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -49,6 +49,65 @@ function relative(iso, now = Date.now()) {
 }
 
 const rootHass = () => document.querySelector("home-assistant")?.hass;
+
+/* ------------------------------------------------------------ accent colors */
+
+// The two accent colors (brass = buttons, lamp, line; green = confirmations), one
+// setting for all devices. Standard keeps the colors of the CSS below.
+const LOOK_DEFAULT = { mode: "default", accent: "#C9A44C", accent2: "#4FA38A" };
+const LOOK_VARS = [
+  "--pt-brass", "--pt-brass-hi", "--pt-brass-lo", "--pt-on-brass",
+  "--pt-verdigris", "--pt-verdigris-hi", "--pt-verdigris-lo", "--pt-on-verdigris",
+];
+let colorCtx;
+/** Any CSS color -> "#rrggbb" (null if it is not a color). */
+function toHex(color) {
+  if (!color) return null;
+  colorCtx ??= document.createElement("canvas").getContext("2d");
+  colorCtx.fillStyle = "#010203";
+  colorCtx.fillStyle = color;
+  const out = colorCtx.fillStyle;
+  return /^#[0-9a-f]{6}$/i.test(out) && (out !== "#010203" || /^#010203$/i.test(color)) ? out : null;
+}
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const mix = (hex, other, t) =>
+  "#" + rgb(hex).map((c, i) => Math.round(c + (rgb(other)[i] - c) * t).toString(16).padStart(2, "0")).join("");
+/** Dark or light text, whichever reads better on this color. */
+function onColor(hex) {
+  const [r, g, b] = rgb(hex).map((c) => {
+    c /= 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.32 ? mix(hex, "#000000", 0.8) : "#ffffff";
+}
+const themeColor = (name) => toHex(getComputedStyle(document.documentElement).getPropertyValue(name).trim());
+/** CSS variables for a look, or null for Portier's standard colors. */
+function lookVars(look) {
+  if (!look || look.mode === "default") return null;
+  const system = look.mode === "system";
+  const a = (system ? themeColor("--primary-color") : toHex(look.accent)) || LOOK_DEFAULT.accent;
+  const b = (system ? themeColor("--accent-color") : toHex(look.accent2)) || LOOK_DEFAULT.accent2;
+  return {
+    "--pt-brass": a,
+    "--pt-brass-hi": mix(a, "#ffffff", 0.3),
+    "--pt-brass-lo": mix(a, "#000000", 0.25),
+    "--pt-on-brass": onColor(a),
+    "--pt-verdigris": b,
+    "--pt-verdigris-hi": mix(b, "#ffffff", 0.35),
+    "--pt-verdigris-lo": mix(b, "#000000", 0.35),
+    "--pt-on-verdigris": onColor(b),
+  };
+}
+/** Put the colors on a Portier element (overlay or panel); its parts inherit them. */
+function applyLook(el, look) {
+  if (!el) return;
+  const vars = lookVars(look);
+  for (const name of LOOK_VARS) {
+    if (vars) el.style.setProperty(name, vars[name]);
+    else el.style.removeProperty(name);
+  }
+}
 
 /* -------------------------------------------------------------------- sound */
 
@@ -465,7 +524,8 @@ class CameraView {
 const CSS = `
 :host{
   --pt-plate:#24282C; --pt-plate-2:#2E3338; --pt-edge:#3C4248;
-  --pt-brass:#C9A44C; --pt-brass-hi:#E2C373; --pt-verdigris:#4FA38A;
+  --pt-brass:#C9A44C; --pt-brass-hi:#E2C373; --pt-brass-lo:#9B7C33; --pt-on-brass:#2B230C;
+  --pt-verdigris:#4FA38A; --pt-verdigris-hi:#7FD0B7; --pt-verdigris-lo:#2F7663; --pt-on-verdigris:#0F2D24;
   --pt-ink:#F2EFE6; --pt-muted:#9AA0A6; --pt-alert:#E0704F;
   font-family:var(--ha-font-family-body,var(--paper-font-body1_-_font-family,system-ui,sans-serif));
   -webkit-font-smoothing:antialiased;
@@ -478,8 +538,8 @@ button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
   border:1px solid var(--pt-edge);border-radius:22px;box-shadow:inset 0 1px 0 #ffffff14}
 .plate-head{display:flex;align-items:center;gap:10px;padding:14px 16px 12px 18px}
 .lamp{width:9px;height:9px;border-radius:50%;background:var(--pt-muted);flex:none}
-.lamp.on{background:var(--pt-brass);box-shadow:0 0 0 0 #c9a44c99;animation:lamp 1.6s ease-out infinite}
-@keyframes lamp{to{box-shadow:0 0 0 10px #c9a44c00}}
+.lamp.on{background:var(--pt-brass);box-shadow:0 0 0 0 color-mix(in srgb,var(--pt-brass) 60%,transparent);animation:lamp 1.6s ease-out infinite}
+@keyframes lamp{to{box-shadow:0 0 0 10px color-mix(in srgb,var(--pt-brass) 0%,transparent)}}
 .door-name{font-size:18px;font-weight:600;letter-spacing:.01em;margin:0;flex:1;min-width:0;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -514,18 +574,18 @@ button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
 
 /* The brass key: hold to open */
 .key{position:relative;flex:none;width:76px;height:76px;border-radius:50%;border:0;padding:0;
-  background:radial-gradient(circle at 35% 30%,var(--pt-brass-hi),var(--pt-brass) 55%,#9b7c33);
+  background:radial-gradient(circle at 35% 30%,var(--pt-brass-hi),var(--pt-brass) 55%,var(--pt-brass-lo));
   box-shadow:0 0 0 5px var(--pt-plate),0 0 0 6px var(--pt-edge),0 6px 14px #0007, inset 0 -3px 6px #0004;
   touch-action:none;user-select:none;-webkit-user-select:none;transition:transform .12s}
 .key:active:not([disabled]){transform:scale(.94)}
-.key svg.glyph{width:30px;height:30px;color:#3a2e10}
+.key svg.glyph{width:30px;height:30px;color:var(--pt-on-brass)}
 .key .ring{position:absolute;inset:-9px;width:94px;height:94px;transform:rotate(-90deg);pointer-events:none}
 .key .ring circle{fill:none;stroke:var(--pt-ink);stroke-width:3;stroke-linecap:round;stroke-dasharray:70 213;opacity:0}
 .key.busy .ring{animation:spin .9s linear infinite}
 .key.busy .ring circle{opacity:1}
 @keyframes spin{to{transform:rotate(270deg)}}
-.key.done{background:radial-gradient(circle at 35% 30%,#7fd0b7,var(--pt-verdigris) 60%,#2f7663)}
-.key.done svg.glyph{color:#0f2d24}
+.key.done{background:radial-gradient(circle at 35% 30%,var(--pt-verdigris-hi),var(--pt-verdigris) 60%,var(--pt-verdigris-lo))}
+.key.done svg.glyph{color:var(--pt-on-verdigris)}
 .key[disabled]:not(.done):not(.busy){filter:grayscale(1) brightness(.6);cursor:not-allowed}
 .key.busy{cursor:progress}
 .key.done{cursor:default}
@@ -547,7 +607,7 @@ button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
 .mic{width:56px;height:56px}
 .mic svg{width:26px;height:26px}
 .mic:hover:not([disabled]){background:#00000080}
-.mic.on{background:var(--pt-verdigris);box-shadow:0 0 0 4px #4fa38a55;transform:scale(1.06)}
+.mic.on{background:var(--pt-verdigris);box-shadow:0 0 0 4px color-mix(in srgb,var(--pt-verdigris) 33%,transparent);transform:scale(1.06)}
 .mic[disabled]{opacity:.45;cursor:not-allowed}
 .talk-label{font-size:11px;color:#ffffffd9;white-space:nowrap;text-shadow:0 1px 3px #000c}
 
@@ -832,6 +892,8 @@ class PortierController {
     if (msg.type === "snapshot") {
       this.checkUpdate(msg.frontend);
       this.doors = new Map(msg.doors.map((d) => [d.entry_id, d]));
+      this.look = msg.look || LOOK_DEFAULT;
+      applyLook(this.overlay, this.look);
       this.catchUp();
       this.overlay?.sync();
     } else if (msg.type === "ring") {
@@ -910,6 +972,7 @@ class PortierController {
     if (!this.overlay) {
       this.overlay = document.createElement("portier-overlay");
       this.overlay.controller = this;
+      applyLook(this.overlay, this.look);
       document.body.append(this.overlay);
     }
     return this.overlay;
@@ -1260,7 +1323,7 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .inline output{width:3.5em;text-align:right;font-variant-numeric:tabular-nums;color:var(--pt-muted)}
 .foot{display:flex;gap:10px;align-items:center;padding:14px 20px 18px;border-top:1px solid var(--pt-edge)}
 .foot .grow{flex:1}
-.primary{border:0;border-radius:999px;padding:10px 20px;background:var(--pt-brass);color:#2b230c;font-weight:600;font-size:15px}
+.primary{border:0;border-radius:999px;padding:10px 20px;background:var(--pt-brass);color:var(--pt-on-brass);font-weight:600;font-size:15px}
 .primary:hover{background:var(--pt-brass-hi)}
 .primary[disabled]{opacity:.6}
 .danger{border:1px solid #e0704f66;background:none;color:var(--pt-alert);border-radius:999px;padding:9px 14px;font-size:14px}
@@ -1808,9 +1871,14 @@ class PortierPanel extends HTMLElement {
       .quiet.failed,.pic .quiet.failed,.device .quiet.failed{color:var(--pt-alert);border-color:var(--pt-alert);cursor:default}
       .empty{text-align:center;padding:48px 16px;color:var(--secondary-text-color);display:grid;gap:16px;justify-items:center}
       .bar .spacer{flex:1}
-      .add{border:0;border-radius:999px;padding:8px 16px;background:var(--pt-brass);color:#2b230c;font-weight:600;font-size:14px}
+      .add{border:0;border-radius:999px;padding:8px 16px;background:var(--pt-brass);color:var(--pt-on-brass);font-weight:600;font-size:14px}
       .add:hover{background:var(--pt-brass-hi)}
       .device{max-width:720px}
+      .device select{font:inherit;font-size:14px;color:var(--primary-text-color);background:var(--secondary-background-color,#1a1d20);
+        border:1px solid var(--divider-color,#555);border-radius:10px;padding:6px 10px;max-width:60%}
+      .device input[type=color]{width:56px;height:32px;border:1px solid var(--divider-color,#555);border-radius:8px;background:none;padding:2px;cursor:pointer;flex:none}
+      .device .row[hidden],.device[hidden]{display:none}
+      .look-state{font-size:13px;color:var(--secondary-text-color,#9aa0a6)}
       .gear{border:0;background:none;color:var(--pt-muted);width:36px;height:36px;border-radius:50%;display:grid;place-items:center}
       .gear:hover{color:var(--pt-ink);background:#ffffff10}
       ${EDITOR_CSS}
@@ -1824,6 +1892,19 @@ class PortierPanel extends HTMLElement {
         <label class="row">Livebild einblenden, wenn es klingelt<input type="checkbox" class="switch" data-k="overlay"></label>
         <label class="row">Klingelton abspielen<input type="checkbox" class="switch" data-k="sound"></label>
         <div class="row"><span class="sound-state"></span><button class="quiet" data-act="sound-test">Ton testen</button></div>
+      </section>
+      <section class="device look" hidden>
+        <h2>Farben</h2>
+        <p>Gilt für alle Geräte. Hauptfarbe: Öffnen-Knopf, Lampe, Balken, Schalter und Knöpfe. Zweitfarbe: Bestätigungen wie „Tür geöffnet“.</p>
+        <label class="row">Farben
+          <select data-look="mode">
+            <option value="default">Standard (Messing und Grün)</option>
+            <option value="system">Wie System (Home-Assistant-Design)</option>
+            <option value="custom">Eigene Farben</option>
+          </select></label>
+        <label class="row" data-custom>Hauptfarbe<input type="color" data-look="accent"></label>
+        <label class="row" data-custom>Zweitfarbe<input type="color" data-look="accent2"></label>
+        <div class="row"><span class="look-state"></span><button class="quiet" data-act="look-reset">Auf Standard zurücksetzen</button></div>
       </section>
     </main>`;
     this.$ = (s) => root.querySelector(s);
@@ -1841,7 +1922,55 @@ class PortierPanel extends HTMLElement {
       this.renderSoundState();
     });
     this.$("[data-act=add]").addEventListener("click", () => this.edit(null));
+    this.wireLook();
     this.onMsg = () => this.render();
+  }
+
+  /** The "Farben" box: one setting for every device, saved on the server. */
+  wireLook() {
+    const box = this.$(".look");
+    const field = (k) => box.querySelector(`[data-look=${k}]`);
+    const state = box.querySelector(".look-state");
+    const current = () => ({
+      mode: field("mode").value,
+      accent: field("accent").value,
+      accent2: field("accent2").value,
+    });
+    const save = async (look) => {
+      state.textContent = "Speichert …";
+      try {
+        ctrl.look = await (this._hass || rootHass()).callWS({ type: "portier/look/save", ...look });
+        state.textContent = "Gespeichert – gilt auf allen Geräten.";
+      } catch (err) {
+        state.textContent = `Nicht gespeichert: ${err?.message || err}`;
+      }
+      this.renderLook();
+    };
+    field("mode").addEventListener("change", () => save(current()));
+    for (const k of ["accent", "accent2"]) {
+      // Show the color right away while picking; save when the picker is closed.
+      field(k).addEventListener("input", () => {
+        applyLook(this, current());
+        applyLook(ctrl.overlay, current());
+      });
+      field(k).addEventListener("change", () => save(current()));
+    }
+    box.querySelector("[data-act=look-reset]").addEventListener("click", () => save({ mode: "default" }));
+  }
+
+  renderLook() {
+    const look = ctrl.look || LOOK_DEFAULT;
+    applyLook(this, look);
+    const box = this.$(".look");
+    box.hidden = !this.isAdmin;
+    const field = (k) => box.querySelector(`[data-look=${k}]`);
+    // Do not overwrite a color while it is being picked.
+    const active = this.shadowRoot.activeElement;
+    field("mode").value = look.mode;
+    if (active !== field("accent")) field("accent").value = toHex(look.accent) || LOOK_DEFAULT.accent.toLowerCase();
+    if (active !== field("accent2")) field("accent2").value = toHex(look.accent2) || LOOK_DEFAULT.accent2.toLowerCase();
+    for (const row of box.querySelectorAll("[data-custom]")) row.hidden = look.mode !== "custom";
+    box.querySelector("[data-act=look-reset]").disabled = look.mode === "default";
   }
 
   get isAdmin() {
@@ -1858,6 +1987,7 @@ class PortierPanel extends HTMLElement {
     this._hass = h;
     if (!this.cards.size && ctrl.doors.size) this.render();
     this.$("[data-act=add]").hidden = !h?.user?.is_admin;
+    this.renderLook(); // also follows a changed Home Assistant theme ("Wie System")
     if (this.pendingEdit && ctrl.doors.size) this.applyPending();
     // HA hands out a new camera key every few minutes and after a reconnect: load the
     // still with it right away instead of keeping a picture that failed with the old one.
@@ -1948,6 +2078,7 @@ class PortierPanel extends HTMLElement {
   }
 
   render() {
+    this.renderLook();
     const box = this.$(".doors");
     const doors = [...ctrl.doors.values()];
     if (!doors.length) {

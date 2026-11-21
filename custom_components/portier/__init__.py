@@ -20,6 +20,7 @@ from .const import (
     SIGNAL_UPDATE,
 )
 from .frontend import async_door_added, async_register_frontend, async_remove_loader
+from .look import async_load_look, async_remove_look
 from .manager import PortierDoor, all_doors, door_for
 from .websocket import async_register_websocket
 
@@ -46,6 +47,7 @@ async def _require_admin(hass: HomeAssistant, call: ServiceCall) -> bool:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register services and the websocket API once."""
+    await async_load_look(hass)
     async_register_websocket(hass)
     # The panel stays available as long as Portier is loaded, even with no door left,
     # so doors can be added right from it.
@@ -102,10 +104,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> 
     return ok
 
 
-
-
 async def async_remove_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> None:
     """Last door removed: take Portier's line out of configuration.yaml again."""
     others = [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]
     if not others:
         await async_remove_loader(hass)
+        await async_remove_look(hass)

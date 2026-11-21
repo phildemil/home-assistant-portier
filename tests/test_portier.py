@@ -736,3 +736,50 @@ async def test_ring_history_survives_restart(hass: HomeAssistant) -> None:
     after = entry.runtime_data.snapshot(True)
     assert after["history"] == before["history"]
     assert after["last_ring"] == before["last_ring"]
+
+
+async def test_colors_shared_by_all_devices(hass: HomeAssistant, hass_ws_client, hass_storage) -> None:
+    """The two accent colors are one setting on the server, sent to every page."""
+    entry = await _setup(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "portier/subscribe"})
+    assert (await client.receive_json())["success"]
+    snap = (await client.receive_json())["event"]
+    assert snap["look"]["mode"] == "default"
+
+    await client.send_json({"id": 2, "type": "portier/look/save", "mode": "custom", "accent": "#3366ff", "accent2": "#ff8800"})
+    result = None
+    pushed = None
+    while result is None or pushed is None:
+        msg = await client.receive_json()
+        if msg.get("id") == 2 and msg["type"] == "result":
+            result = msg
+        elif msg.get("id") == 1 and msg["event"]["type"] == "snapshot":
+            pushed = msg["event"]
+    assert result["success"]
+    assert pushed["look"] == {"mode": "custom", "accent": "#3366ff", "accent2": "#ff8800"}
+    assert hass_storage["portier.look"]["data"]["accent"] == "#3366ff"
+
+    # Invalid colors are refused.
+    await client.send_json({"id": 3, "type": "portier/look/save", "mode": "custom", "accent": "blau"})
+    while (msg := await client.receive_json()).get("id") != 3 or msg["type"] != "result":
+        pass
+    assert not msg["success"]
+
+    # Back to standard also forgets the picked colors.
+    await client.send_json({"id": 4, "type": "portier/look/save", "mode": "default"})
+    while (msg := await client.receive_json()).get("id") != 4 or msg["type"] != "result":
+        pass
+    assert msg["result"] == {"mode": "default", "accent": "#C9A44C", "accent2": "#4FA38A"}
+
+    # Removing the last door forgets the colors.
+    await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert "portier.look" not in hass_storage
+
+
+async def test_colors_need_admin(hass: HomeAssistant, hass_ws_client, hass_read_only_access_token) -> None:
+    await _setup(hass)
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+    await client.send_json({"id": 1, "type": "portier/look/save", "mode": "system"})
+    assert not (await client.receive_json())["success"]

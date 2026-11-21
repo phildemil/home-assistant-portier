@@ -30,6 +30,9 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - Öffnen per NFC (`nfc.py`): Event `tag_scanned` der HA-App; Optionen `nfc_tags` (Tag-Entitäten),
   `nfc_devices` (erlaubte mobile_app-Geräte), Zeitfenster, Hinweis an Empfänger. Handy braucht
   Verbindung zu HA (Benutzer: WLAN bis zur Tür, kein Fernzugriff).
+- Farben (`look.py`, Store `portier.look`, `portier/look/save` nur Admin): Standard / Wie System
+  (`--primary-color`/`--accent-color` des HA-Designs) / Eigene; gilt für alle Geräte, kommt im Snapshot
+  (`look`) und wird als CSS-Variablen `--pt-brass*`/`--pt-verdigris*` auf Overlay und Panel gesetzt.
 - Verläufe: Klingelverlauf (Taster/Person) und Türöffner-Verlauf (wer, Weg), beide im Store (je 50).
 
 ## Wichtige Entscheidungen des Benutzers (nicht wieder ändern)
