@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.12.0";
+const VERSION = "1.12.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -479,7 +479,7 @@ button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
 @keyframes lamp{to{box-shadow:0 0 0 10px #c9a44c00}}
 .door-name{font-size:18px;font-weight:600;letter-spacing:.01em;margin:0;flex:1;min-width:0;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.since{color:var(--pt-muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
 .x{border:0;background:none;color:var(--pt-muted);width:36px;height:36px;border-radius:50%;font-size:22px;line-height:1}
 .x:hover{color:var(--pt-ink);background:#ffffff10}
 
@@ -953,7 +953,7 @@ const PICTURE_CSS = `
 .pic .controls{bottom:0;min-height:0;align-items:flex-end;padding:32px 16px 14px;
   background:linear-gradient(#0000,#000000c0)}
 .pic .door-name{font-size:17px}
-.pic .since,.pic .status,.pic .key-label:not(.ok):not(.bad){color:#ffffffd9}
+.pic .status,.pic .key-label:not(.ok):not(.bad){color:#ffffffd9}
 .pic .status b{color:#fff}
 .pic .x,.pic .gear{color:#fff;background:#0000004d;backdrop-filter:blur(6px);width:34px;height:34px}
 .pic .x:hover,.pic .gear:hover{background:#00000080}
@@ -1097,7 +1097,6 @@ class PortierOverlay extends HTMLElement {
         <div class="plate-head">
           <span class="lamp on"></span>
           <h2 class="door-name">${esc(door.name)}</h2>
-          <span class="since"></span>
           <button class="x" aria-label="Schließen">×</button>
         </div>
         <div class="flash"></div>
@@ -1169,7 +1168,6 @@ class PortierOverlay extends HTMLElement {
     const left = v.until - this.controller.now();
     if (left <= 0) return this.close(v.entryId);
     const el = v.el;
-    el.querySelector(".since").textContent = door.last_ring ? relative(door.last_ring, this.controller.now()) : "";
     el.querySelector(".lamp").classList.toggle("on", !!v.ringing && !v.opened);
     const line = el.querySelector(".timeline");
     line.classList.toggle("opened", !!v.opened);
