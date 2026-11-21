@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.12.2";
+const VERSION = "1.12.3";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -121,9 +121,9 @@ class Chime {
 /** Where a door opening came from, for the opener history. */
 const OPEN_VIA = {
   app: "Home Assistant",
-  ha_app: "App",
+  ha_app: "Home-Assistant-App",
   browser: "Browser",
-  push: "App", // the open button in the push notification – for the user that is the app too
+  push: "Push-Nachricht",
   nfc: "NFC an der Tür",
   telegram: "Telegram",
   button: "Taste in Home Assistant",
@@ -155,7 +155,10 @@ const histRow = (time, name, detail) =>
 function openedBy(door) {
   const r = door.opens?.[0];
   if (!r || (door.last_opened && r.time !== door.last_opened)) return "";
-  return ` · von ${esc(openWho(r))} über ${esc(OPEN_VIA[r.via] || r.via)}`;
+  // The live view keeps it short: push button and app are both just "the app" there.
+  // The opener history shows exactly which way it was.
+  const how = ["push", "ha_app"].includes(r.via) ? "App" : OPEN_VIA[r.via] || r.via;
+  return ` · von ${esc(openWho(r))} über ${esc(how)}`;
 }
 const openWho = (r) => r.who || (["button", "service"].includes(r.via) ? "Automation" : "Unbekannt");
 
