@@ -12,7 +12,8 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   `notify.mobile_app_*` (Kamerabild + Knopf „Tür öffnen“; Tippen auf die Nachricht öffnet
   `/portier?show=<entry_id>` = Livebild-Popup dieser Tür), Telegram (`send_photo` mit
   Inline-Knopf, nur ausgewählte Chats dürfen öffnen). Öffnen-Knöpfe sind Einmal-Token mit
-  Ablaufzeit.
+  Ablaufzeit. Nach Öffnen/Ablauf wird die Push-Nachricht (gleicher `tag`) still ersetzt
+  (Kanal „Türklingel Info“ low, `alert_once`, iOS passive) – wie das Telegram-Bearbeiten.
 - Telegram-Empfänger werden im Editor per Haken aus den `allowed_chat_ids`-Subentries der
   Telegram-Bot-Integration gewählt (`portier/config` liefert `telegram_chats`); gespeichert
   bleibt `telegram_targets` als kommagetrennte IDs.

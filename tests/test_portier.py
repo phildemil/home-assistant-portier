@@ -526,6 +526,58 @@ async def test_telegram_button_expires(hass: HomeAssistant) -> None:
     assert "nicht mehr möglich" in edits[0].data["caption"]
 
 
+async def test_push_shows_opened(hass: HomeAssistant) -> None:
+    """After opening, every phone's ring notification is replaced quietly, without button."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    tablet = async_mock_service(hass, "notify", "mobile_app_tablet")
+    entry = await _setup(
+        hass, notify_services=["mobile_app_pixel", "mobile_app_tablet"], action_window_seconds=120
+    )
+    await _press(hass)
+    await hass.async_block_till_done()
+    action = pixel[0].data["data"]["actions"][0]["action"]
+    hass.bus.async_fire("mobile_app_notification_action", {"action": action})
+    await hass.async_block_till_done()
+    for calls in (pixel, tablet):
+        assert len(calls) == 2
+        ring, done = calls[0].data, calls[1].data
+        assert done["data"]["tag"] == ring["data"]["tag"] == f"portier_{entry.entry_id}"
+        assert "actions" not in done["data"]
+        assert done["data"]["alert_once"] is True
+        assert done["data"]["importance"] == "low"
+        assert done["data"]["push"]["interruption-level"] == "passive"
+        assert done["title"].startswith("✅")
+        assert "Tür geöffnet" in done["message"] and "App-Benachrichtigung" in done["message"]
+    # Nothing more later: no expiry note, no second replacement.
+    await entry.runtime_data.async_open(via="app")
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert len(pixel) == 2
+
+
+async def test_push_button_expires(hass: HomeAssistant) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"], action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert len(pixel) == 2
+    late = pixel[1].data
+    assert "actions" not in late["data"]
+    assert "nicht mehr möglich" in late["message"]
+    assert late["data"]["push"]["interruption-level"] == "passive"
+
+
+async def test_push_without_button_is_not_replaced(hass: HomeAssistant) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, opener_entity=None, notify_services=["mobile_app_pixel"])
+    await _press(hass)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=300))
+    await hass.async_block_till_done()
+    assert len(pixel) == 1
+
+
 async def test_migrate_window_minutes_to_seconds(hass: HomeAssistant) -> None:
     opts = {k: v for k, v in BASE.items() if k != "action_window_seconds"}
     opts["action_window_minutes"] = 5

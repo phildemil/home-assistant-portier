@@ -52,7 +52,7 @@ Alles geht direkt in der Seitenleiste **Türklingel** (als Administrator):
 
 „notify“ ist in Home Assistant der Sammelbegriff für alle Wege, eine Nachricht zu verschicken. Jedes Handy mit der App bringt einen eigenen Dienst mit (`notify.mobile_app_<handy>`). Ein Handy bekommt jede Nachricht nur einmal, auch wenn es zusätzlich einzeln angekreuzt ist.
 
-Jeder Öffnen-Knopf funktioniert nur **einmal** und nur kurz nach der Nachricht (Standard 120 Sekunden, einstellbar 1–120 s). In Telegram verschwindet der Knopf danach, und sobald die Tür geöffnet wurde – egal wie –, steht dort „Tür geöffnet“. Ein alter Knopf von gestern öffnet nichts mehr. Wer mehrmals klingelt, löst nicht jedes Mal eine Nachricht aus (Mindestabstand einstellbar).
+Jeder Öffnen-Knopf funktioniert nur **einmal** und nur kurz nach der Nachricht (Standard 120 Sekunden, einstellbar 1–120 s). In Telegram und in der App-Benachrichtigung verschwindet der Knopf danach, und sobald die Tür geöffnet wurde – egal wie –, steht dort „Tür geöffnet“ mit Name und Weg. Am Handy wird die Nachricht dafür still ersetzt (kein Ton); wurde sie schon weggewischt, erscheint sie still wieder. Ein alter Knopf von gestern öffnet nichts mehr. Wer mehrmals klingelt, löst nicht jedes Mal eine Nachricht aus (Mindestabstand einstellbar).
 
 Wenn du bisher eigene Automationen für Push oder Telegram hast, deaktiviere sie, sonst kommen Nachrichten doppelt.
 

@@ -72,20 +72,26 @@ class Notifier:
         # Telegram messages whose "open" button is still live: (chat_id, message_id,
         # is_photo, caption) -> cancel of the expiry timer.
         self._tg_live: dict[tuple[int, int, bool, str], CALLBACK_TYPE] = {}
+        # Phones whose ring notification still shows the "open" button:
+        # (services, time of the ring, cancel of the expiry timer).
+        self._push_live: tuple[list[str], str, CALLBACK_TYPE] | None = None
 
     # ------------------------------------------------------------------ listen
     def async_listen(self) -> list[CALLBACK_TYPE]:
         return [
             self.hass.bus.async_listen(MOBILE_ACTION_EVENT, self._on_mobile_action),
             self.hass.bus.async_listen(TELEGRAM_CALLBACK_EVENT, self._on_telegram_callback),
-            self._forget_telegram,
+            self._forget_live,
         ]
 
     @callback
-    def _forget_telegram(self) -> None:
+    def _forget_live(self) -> None:
         for cancel in self._tg_live.values():
             cancel()
         self._tg_live.clear()
+        if self._push_live:
+            self._push_live[2]()
+            self._push_live = None
 
     def _new_token(self) -> str:
         now = time.monotonic()
@@ -135,16 +141,21 @@ class Notifier:
 
         token = self._new_token() if self._open_allowed else None
         title = f"🔔 {self.door.name}"
-        message = f"Es klingelt · {dt_util.now().strftime('%H:%M:%S')}"
+        rang = dt_util.now().strftime("%H:%M:%S")
+        message = f"Es klingelt · {rang}"
 
+        phones: list[str] = []
         for service in services:
             try:
                 if service.startswith("mobile_app_"):
                     await self._send_mobile(service, title, message, token)
+                    phones.append(service)
                 else:
                     await self._call("notify", service, {"title": title, "message": message})
             except (HomeAssistantError, ValueError, TimeoutError) as err:
                 _LOGGER.error("Portier: Benachrichtigung über %s fehlgeschlagen: %s", service, err)
+        if token and phones:
+            self._track_push(phones, rang)
 
         if targets:
             await self._send_telegram(targets, f"{title}\n{message}", token)
@@ -171,8 +182,14 @@ class Notifier:
                 _LOGGER.warning("Portier: Telegram-Hinweis fehlgeschlagen: %s", err)
 
     async def _send_mobile(
-        self, service: str, title: str, message: str, token: str | None
+        self,
+        service: str,
+        title: str,
+        message: str,
+        token: str | None,
+        quiet: bool = False,
     ) -> None:
+        """Ring notification; quiet=True replaces it (same tag) without sound or vibration."""
         entry_id = self.door.entry.entry_id
         # Tapping the notification opens the live picture with the opener inside it.
         live_url = f"/{PANEL_URL}?show={entry_id}"
@@ -180,15 +197,26 @@ class Notifier:
             "tag": f"portier_{entry_id}",
             "group": "portier",
             # Android
-            "channel": "Türklingel",
-            "importance": "high",
             "priority": "high",
             "ttl": 0,
             "clickAction": live_url,
             # iOS
             "url": live_url,
-            "push": {"interruption-level": "time-sensitive"},
         }
+        if quiet:
+            # Own low channel: silent even if the ring notification was already swiped away.
+            data |= {
+                "channel": "Türklingel Info",
+                "importance": "low",
+                "alert_once": True,
+                "push": {"interruption-level": "passive"},
+            }
+        else:
+            data |= {
+                "channel": "Türklingel",
+                "importance": "high",
+                "push": {"interruption-level": "time-sensitive"},
+            }
         if camera := self.door.camera:
             # The app downloads this itself with its own login.
             data["image"] = f"/api/camera_proxy/{camera}"
@@ -274,10 +302,39 @@ class Notifier:
 
             self._tg_live[key] = async_call_later(self.hass, window, _expired)
 
+    def _track_push(self, phones: list[str], rang: str) -> None:
+        """Remember the phones so their notification can be replaced later."""
+        if self._push_live:
+            self._push_live[2]()  # a newer ring replaced the older notification anyway
+
+        @callback
+        def _expired(_now: Any) -> None:
+            if self._push_live is None:
+                return
+            services, rang_at, _cancel = self._push_live
+            self._push_live = None
+            self.hass.async_create_task(
+                self._replace_mobile(
+                    services,
+                    f"🔔 {self.door.name}",
+                    f"Es klingelte · {rang_at} · Öffnen nicht mehr möglich",
+                )
+            )
+
+        window = float(self.door.opt(CONF_ACTION_WINDOW))
+        self._push_live = (phones, rang, async_call_later(self.hass, window, _expired))
+
+    async def _replace_mobile(self, services: list[str], title: str, message: str) -> None:
+        for service in services:
+            try:
+                await self._send_mobile(service, title, message, None, quiet=True)
+            except (HomeAssistantError, ValueError, TimeoutError) as err:
+                _LOGGER.debug("Portier: Push über %s nicht ersetzt: %s", service, err)
+
     @callback
     def async_door_opened(self, via: str, who: str | None = None) -> None:
-        """The door was opened somehow: say so in every Telegram message still live."""
-        if not self._tg_live:
+        """The door was opened somehow: say so in every notification still live."""
+        if not self._tg_live and not self._push_live:
             return
         how = "über Telegram" if via == "telegram" else VIA_TEXT.get(via, f"über {via}")
         if who:
@@ -287,6 +344,14 @@ class Notifier:
         for key, cancel in live.items():
             cancel()
             self.hass.async_create_task(self._edit_telegram(key, note))
+        if self._push_live:
+            services, rang, cancel = self._push_live
+            self._push_live = None
+            cancel()
+            message = f"{note.removeprefix('✅ ')}\nEs klingelte · {rang}"
+            self.hass.async_create_task(
+                self._replace_mobile(services, f"✅ {self.door.name}", message)
+            )
 
     async def _edit_telegram(self, key: tuple[int, int, bool, str], note: str) -> None:
         chat_id, message_id, is_photo, caption = key
