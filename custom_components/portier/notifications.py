@@ -42,11 +42,11 @@ TELEGRAM_COMMAND = "/portier_open"
 
 VIA_TEXT = {
     "app": "über Home Assistant",
-    "ha_app": "über die Home-Assistant-App",
+    "ha_app": "über die App",
     "browser": "über den Browser",
     "service": "über Home Assistant",
     "button": "über Home Assistant",
-    "push": "über die App-Benachrichtigung",
+    "push": "über die App",
     "nfc": "per NFC an der Tür",
 }
 

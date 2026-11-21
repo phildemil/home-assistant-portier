@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.12.1";
+const VERSION = "1.12.2";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -121,9 +121,9 @@ class Chime {
 /** Where a door opening came from, for the opener history. */
 const OPEN_VIA = {
   app: "Home Assistant",
-  ha_app: "Home-Assistant-App",
+  ha_app: "App",
   browser: "Browser",
-  push: "Push-Nachricht",
+  push: "App", // the open button in the push notification – for the user that is the app too
   nfc: "NFC an der Tür",
   telegram: "Telegram",
   button: "Taste in Home Assistant",
