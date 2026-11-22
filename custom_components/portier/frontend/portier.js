@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.15.2";
+const VERSION = "1.15.3";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -271,13 +271,15 @@ class CameraView {
     this.media = null;
     this.pending = new Set(); // videos started but not shown yet
     this.gen = 0;
-    // A tab in the background lets a live video stall; coming back starts it afresh.
+    // In a background tab a live video stalls or falls behind; coming back fixes that.
     this.onVisible = () => {
-      if (document.visibilityState === "hidden") this.hiddenAt = Date.now();
-      else if (this.hiddenAt && !this.closed) {
-        this.hiddenAt = 0;
-        this.restart();
+      if (document.visibilityState === "hidden") {
+        this.hiddenAt ||= Date.now();
+        return;
       }
+      const away = this.hiddenAt ? Date.now() - this.hiddenAt : 0;
+      this.hiddenAt = 0;
+      if (!this.closed && away >= 3000) this.resume();
     };
     document.addEventListener("visibilitychange", this.onVisible);
     this.pc = null;
@@ -582,6 +584,21 @@ class CameraView {
     this.el.append(node);
   }
 
+  /** Back from the background: HLS would play on from the old, delayed spot, so it starts
+   *  over; WebRTC is real-time and only starts over if it really stopped. */
+  resume() {
+    if (!this.mode) return; // still starting: the running attempts carry on
+    if (this.mode === "hls") return this.restart();
+    const v = this.media;
+    if (v?.tagName !== "VIDEO") return; // MJPEG keeps streaming by itself
+    v.play?.().catch(() => {});
+    const t = v.currentTime;
+    clearTimeout(this.aliveTimer);
+    this.aliveTimer = setTimeout(() => {
+      if (!this.closed && this.media === v && (v.paused || v.currentTime === t)) this.restart();
+    }, 2000);
+  }
+
   /** Start over; the last picture stays on screen until the new one plays. */
   restart() {
     this.talkStop();
@@ -594,6 +611,7 @@ class CameraView {
 
   destroy() {
     this.closed = true;
+    clearTimeout(this.aliveTimer);
     document.removeEventListener("visibilitychange", this.onVisible);
     this.stopWebrtc();
     for (const v of this.pending) this.drop(v);
