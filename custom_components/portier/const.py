@@ -44,6 +44,7 @@ CONF_NFC_NOTIFY: Final = "nfc_notify"
 # Notifications
 CONF_NOTIFY: Final = "notify_services"
 # Special entry in CONF_NOTIFY: every phone with the companion app, also ones added later.
+# Old "all phones" choice: no longer offered in the editor, still honoured for doors that use it.
 NOTIFY_ALL_MOBILE: Final = "all_mobile_apps"
 CONF_TELEGRAM_TARGETS: Final = "telegram_targets"
 CONF_NOTIFY_OPEN: Final = "notify_allow_open"

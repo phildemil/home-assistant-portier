@@ -44,7 +44,7 @@ Alles geht direkt in der Seitenleiste **Türklingel** (als Administrator):
 
 ## Benachrichtigungen
 
-**Handy (Home-Assistant-App):** Unter „Push-Benachrichtigungen“ entweder **„Alle Handys mit der App“** wählen – dann bekommt jedes Handy mit der App die Nachricht, auch eins, das später dazukommt – oder einzelne Handys (`mobile_app_…`) ankreuzen. Die Nachricht zeigt das Kamerabild und den Knopf **Tür öffnen** (das Handy verlangt dafür die Entsperrung). Wer auf die Nachricht tippt, landet direkt im Livebild dieser Tür, mit dem Türöffner im Bild.
+**Handy (Home-Assistant-App):** Unter „Push-Nachricht an“ die Handys ankreuzen, die die Nachricht bekommen sollen (`mobile_app_…`; ein neues Handy erscheint dort, sobald die App angemeldet ist). Die Nachricht zeigt das Kamerabild und den Knopf **Tür öffnen** (das Handy verlangt dafür die Entsperrung). Wer auf die Nachricht tippt, landet direkt im Livebild dieser Tür, mit dem Türöffner im Bild.
 
 **Telegram:** Die Telegram-Bot-Integration muss eingerichtet sein. Die Empfänger per Haken auswählen – angeboten werden die Chats, die in der Telegram-Bot-Integration erlaubt sind (ohne solche Chats: Chat-IDs kommagetrennt eintragen). Es kommt ein Foto mit **Tür öffnen**-Knopf. Nur die eingetragenen Chats dürfen damit öffnen.
 
