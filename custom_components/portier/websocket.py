@@ -290,8 +290,10 @@ async def ws_door_save(
         entry_id = entry.entry_id
         hass.config_entries.async_update_entry(entry, title=options["name"], options=options)
         await hass.config_entries.async_reload(entry_id)
+    connection.send_result(msg["id"], {"entry_id": entry_id})
     # "Keep warm" is Home Assistant's own camera setting: the editor shows it and saving
-    # sets it – only here, never behind the user's back at a restart.
+    # sets it – only here, never behind the user's back at a restart. It runs after the
+    # answer: the editor closes at once, whatever the camera takes.
     camera = options.get(CONF_CAMERA)
     if camera:
         await async_set_preload(hass, camera, bool(options.get(CONF_PRELOAD, True)))
@@ -300,7 +302,6 @@ async def ws_door_save(
         # The door no longer uses its old camera: stop keeping that one warm,
         # unless another door still needs it.
         await async_release_preload(hass, old_camera, "")
-    connection.send_result(msg["id"], {"entry_id": entry_id})
 
 
 @websocket_api.websocket_command(

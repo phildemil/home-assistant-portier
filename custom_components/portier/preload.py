@@ -32,13 +32,15 @@ async def async_set_preload(hass: HomeAssistant, entity_id: str | None, on: bool
         if prefs is None:
             return
         current = await prefs.get_dynamic_stream_settings(entity_id)
-        if current.preload_stream != on:
+        changed = current.preload_stream != on
+        if changed:
             await prefs.async_update(entity_id, preload_stream=on)
         component = hass.data.get(DATA_COMPONENT)
         camera = component.get_entity(entity_id) if component else None
         if camera is None:
             return  # not there yet: Home Assistant preloads it itself once it has started
-        if provider := camera.webrtc_provider:
+        # Tell go2rtc only about a real change: for some cameras it takes ~10 s to answer.
+        if changed and (provider := camera.webrtc_provider):
             try:
                 await provider.async_on_camera_prefs_update(camera)
             except Exception as err:  # noqa: BLE001 – e.g. go2rtc cannot read this camera

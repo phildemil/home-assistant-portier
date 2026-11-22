@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.0";
+const VERSION = "1.18.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -1438,7 +1438,11 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .editor .sub-block{display:grid;gap:14px;padding:4px 0 0 14px;border-left:2px solid var(--pt-edge)}
 .editor .sub-block[hidden]{display:none}
 .editor summary{cursor:pointer;list-style:revert}
-.editor .preload{margin-top:-6px}
+/* Settings that belong to the chosen camera: indented under it, joined by a line. */
+.editor .cam-opts{display:grid;gap:12px;margin:-4px 0 0 6px;padding:2px 0 2px 16px;
+  border-left:2px solid var(--pt-edge)}
+.editor .cam-opts[hidden]{display:none}
+.editor .cam-opts .f>span{font-size:13px}
 
 .f{display:grid;gap:6px}
 .f[hidden]{display:none}
@@ -1677,17 +1681,19 @@ class PortierEditor extends HTMLElement {
           ${this.entityField("trigger_entity", "Klingeltaster", DOMAINS.trigger, v.trigger_entity,
             "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.")}
           ${this.entityField("camera_entity", "Kamera", DOMAINS.camera, v.camera_entity)}
-          <div class="f preload" data-f="camera_preload" ${v.camera_entity ? "" : "hidden"}>
+          <div class="cam-opts" ${v.camera_entity ? "" : "hidden"}>
+          <div class="f preload" data-f="camera_preload">
             <label class="chk"><input type="checkbox" name="camera_preload" ${v.camera_preload ? "checked" : ""}>Livebild vorwärmen</label>
             <small>Hält den Kamerastream offen, damit das Livebild beim Klingeln sofort da ist.</small>
           </div>
-          <div class="two" data-f="snapshot" ${v.camera_entity ? "" : "hidden"}>
+          <div class="two" data-f="snapshot">
             ${this.select("snapshot_source", "Foto für Push und Telegram", v.snapshot_source || "auto", [
               ["auto", "Automatisch"],
               ["stream", "Aus dem Livebild"],
               ["still", "Standbild der Kamera"],
             ], "Automatisch: das Standbild der Kamera, wenn sie eines hat, sonst aus dem Livebild.")}
             ${this.num("snapshot_delay", "Foto nach dem Klingeln", v.snapshot_delay ?? 0, "s", 0, 5, 1, "Push und Telegram kommen, sobald das Foto gemacht ist. 0 = sofort.")}
+          </div>
           </div>
           ${this.entityField("opener_entity", "Türöffner", DOMAINS.opener, v.opener_entity,
             "Relais, Schalter oder Helfer bekommen einen Impuls. Schloss wird geöffnet, Taste gedrückt, Skript ausgeführt.")}
@@ -1769,9 +1775,10 @@ class PortierEditor extends HTMLElement {
         out.textContent = !id ? "" : st ? `✓ ${st.attributes.friendly_name || id}` : "Nicht gefunden";
         out.classList.toggle("missing", !!id && !st);
         if (inp.name === "camera_entity") {
+          // The camera's own settings show only with a camera.
+          const opts = this.querySelector(".cam-opts");
+          if (opts) opts.hidden = !id;
           this.syncPreload(id);
-          const snap = this.querySelector("[data-f=snapshot]");
-          if (snap) snap.hidden = !id;
         }
       };
       const field = inp.closest(".f");
