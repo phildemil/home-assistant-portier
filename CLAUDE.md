@@ -79,7 +79,8 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   `camera.stream.async_get_image()` (sofort, umgeht go2rtc, das bei manchen Kameras scheitert); sonst
   `async_get_image`. Optionen `snapshot_source` (auto/stream/still) und `snapshot_delay` (0–5 s): mit
   Versatz warten Push **und** Telegram aufs Foto (Benutzerwunsch: Nachricht erst, wenn das Bild da ist).
-- `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`,
+- `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`, `still`
+  (Kartenbild über Portiers Bildweg, wenn HAs `camera_proxy` scheitert; Karte merkt sich das pro Tür),
   `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
 - `config_flow.py` – Einrichtung fragt nur den Namen (Fertig-Dialog verlinkt `/portier?edit=new`),
   „Konfigurieren“ ist ein Abbruch mit Link `/portier?edit=<entry_id>`. Einziger Einstellort ist der

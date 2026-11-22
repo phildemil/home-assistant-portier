@@ -1067,3 +1067,17 @@ async def test_delayed_picture_message_waits_for_it(hass: HomeAssistant, picture
     assert len(pixel) == 1 and time.monotonic() - start >= 1
     assert pixel[0].data["data"]["image"].startswith("/api/portier/snapshot/")
     assert picture  # taken before the message went out
+
+
+async def test_still_from_portier(hass: HomeAssistant, picture, hass_ws_client) -> None:
+    """The door card can ask Portier for a still (where Home Assistant's own one fails)."""
+    import base64
+
+    entry = await _setup(hass, snapshot_delay=5)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "portier/still", "entry_id": entry.entry_id})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert base64.b64decode(msg["result"]["data"]) == b"JPEGDATA"  # no ring delay here
+    await client.send_json({"id": 2, "type": "portier/still", "entry_id": "nope"})
+    assert not (await client.receive_json())["success"]

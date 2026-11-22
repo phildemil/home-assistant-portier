@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
@@ -49,6 +50,33 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_door_save)
     websocket_api.async_register_command(hass, ws_door_delete)
     websocket_api.async_register_command(hass, ws_look_save)
+    websocket_api.async_register_command(hass, ws_still)
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/still", vol.Required("entry_id"): str}
+)
+@websocket_api.async_response
+async def ws_still(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """A still for the door card when Home Assistant's own one fails for this camera."""
+    try:
+        door = door_for(hass, msg["entry_id"])
+    except HomeAssistantError:
+        connection.send_error(msg["id"], "not_found", "Tür nicht gefunden")
+        return
+    if not door.camera or not _visible(connection, door):
+        connection.send_error(msg["id"], "not_found", "Kein Kamerabild")
+        return
+    picture = await door.notifier.async_still()
+    if not picture:
+        connection.send_error(msg["id"], "no_picture", "Die Kamera liefert gerade kein Bild")
+        return
+    connection.send_result(
+        msg["id"],
+        {"content_type": picture[1], "data": base64.b64encode(picture[0]).decode("ascii")},
+    )
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/subscribe"})

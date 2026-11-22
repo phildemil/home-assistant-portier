@@ -455,12 +455,19 @@ class Notifier:
         except (HomeAssistantError, ValueError, TimeoutError) as err:
             _LOGGER.debug("Portier: Telegram-Nachricht nicht geändert: %s", err)
 
-    async def _snapshot(self) -> Picture:
+    async def async_still(self) -> Picture:
+        """A current picture for the door card, the same way as the ring picture (no delay).
+
+        Used when Home Assistant's own still fails for a camera (e.g. go2rtc cannot read it).
+        """
+        return await self._snapshot(with_delay=False)
+
+    async def _snapshot(self, with_delay: bool = True) -> Picture:
         """One picture from the camera, or None if it does not come quickly."""
         camera = self.door.camera
         if not camera or "camera" not in self.hass.config.components:
             return None
-        if delay := self._snapshot_delay():
+        if with_delay and (delay := self._snapshot_delay()):
             await asyncio.sleep(delay)  # e.g. until the visitor stands in front of the camera
         source = self.door.opt(CONF_SNAPSHOT_SOURCE) or SNAPSHOT_AUTO
         if source != SNAPSHOT_STILL and (

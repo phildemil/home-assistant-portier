@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.1";
+const VERSION = "1.18.2";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -255,7 +255,7 @@ class CameraView {
    * @param {boolean} [opts.talk] offer a microphone back channel (two-way audio)
    * @param {(state: string) => void} [opts.onTalk] "wait" | "ready" | "unsupported" | "insecure"
    */
-  constructor(entityId, getHass, { talk = false, onTalk = null } = {}) {
+  constructor(entityId, getHass, { talk = false, onTalk = null, entryId = null } = {}) {
     this.entityId = entityId;
     this.getHass = getHass;
     this.talk = talk;
@@ -267,6 +267,12 @@ class CameraView {
     this.still = document.createElement("img");
     this.still.className = "cam-still";
     this.still.alt = "";
+    // Home Assistant's still failed (some cameras): ask Portier for one, once.
+    this.still.addEventListener("error", async () => {
+      if (!entryId || this.closed || this.still.src.startsWith("data:")) return;
+      const url = await ctrl.portierStill(entryId);
+      if (url && !this.closed) this.still.src = url;
+    });
     this.el.append(this.still);
     this.media = null;
     this.pending = new Set(); // videos started but not shown yet
@@ -1040,6 +1046,17 @@ class PortierController {
     return h ? h.callWS(msg) : this.conn.sendMessagePromise(msg);
   }
 
+  /** A still taken by Portier (same way as the ring picture) – for cameras whose
+   *  Home Assistant still fails. Resolves to a data: URL, or "" if there is none. */
+  async portierStill(entryId) {
+    try {
+      const { content_type: type, data } = await this.callWS({ type: "portier/still", entry_id: entryId });
+      return `data:${type};base64,${data}`;
+    } catch {
+      return "";
+    }
+  }
+
   onMessage(msg) {
     if (msg.server_time) this.offset = new Date(msg.server_time).getTime() - Date.now();
     if (msg.type === "snapshot") {
@@ -1330,7 +1347,7 @@ class PortierOverlay extends HTMLElement {
       </div>`;
     let camera = null;
     const talk = wireTalk(el, () => camera);
-    camera = new CameraView(door.camera, rootHass, { talk: !!door.talk, onTalk: talk.onTalk });
+    camera = new CameraView(door.camera, rootHass, { talk: !!door.talk, onTalk: talk.onTalk, entryId: door.entry_id });
     el.querySelector(".window").prepend(camera.el);
     camera.start();
     const v = { entryId: door.entry_id, el, camera, until: 0, total: 1, ringing: false };
@@ -1431,18 +1448,15 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .editor fieldset{border:0;border-top:1px solid var(--pt-edge);margin:0;padding:14px 0 10px;display:grid;gap:14px}
 .editor fieldset:first-of-type{border-top:0}
 .editor legend,.editor summary{font-size:13px;color:var(--pt-brass-hi);font-weight:600;padding:0;margin-bottom:4px}
-.editor details{border-top:1px solid var(--pt-edge);padding:12px 0}
+.editor details{border-top:1px solid var(--pt-edge);padding:12px 0;margin:0}
 .editor details[open] summary{margin-bottom:14px}
 .editor details>div{display:grid;gap:14px}
 .editor .sub{margin:4px 0 -6px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--pt-muted)}
 .editor .sub-block{display:grid;gap:14px;padding:4px 0 0 14px;border-left:2px solid var(--pt-edge)}
 .editor .sub-block[hidden]{display:none}
 .editor summary{cursor:pointer;list-style:revert}
-/* Settings that belong to the chosen camera: indented under it, joined by a line. */
-.editor .cam-opts{display:grid;gap:12px;margin:-4px 0 0 6px;padding:2px 0 2px 16px;
-  border-left:2px solid var(--pt-edge)}
-.editor .cam-opts[hidden]{display:none}
-.editor .cam-opts .f>span{font-size:13px}
+/* Settings that belong to the field above (camera, NFC): indented, joined by a line. */
+.editor .cam-opts{margin-top:-4px}
 
 .f{display:grid;gap:6px}
 .f[hidden]{display:none}
@@ -1675,13 +1689,13 @@ class PortierEditor extends HTMLElement {
         <button type="button" class="x" data-act="cancel" aria-label="Schließen">×</button>
       </div>
       <div class="scroll">
-        <fieldset><legend>Geräte</legend>
+        <fieldset><legend>Tür & Geräte</legend>
           <label class="f" data-f="name"><span>Name der Tür</span>
             <input type="text" name="name" value="${esc(v.name)}" placeholder="z. B. Haustür" required maxlength="60"></label>
           ${this.entityField("trigger_entity", "Klingeltaster", DOMAINS.trigger, v.trigger_entity,
             "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.")}
           ${this.entityField("camera_entity", "Kamera", DOMAINS.camera, v.camera_entity)}
-          <div class="cam-opts" ${v.camera_entity ? "" : "hidden"}>
+          <div class="cam-opts sub-block" ${v.camera_entity ? "" : "hidden"}>
           <div class="f preload" data-f="camera_preload">
             <label class="chk"><input type="checkbox" name="camera_preload" ${v.camera_preload ? "checked" : ""}>Livebild vorwärmen</label>
             <small>Hält den Kamerastream offen, damit das Livebild beim Klingeln sofort da ist.</small>
@@ -2361,7 +2375,14 @@ class PortierPanel extends HTMLElement {
     const still = el.querySelector(".still");
     still.addEventListener("load", () => (el.stillFails = 0));
     still.addEventListener("error", () => {
-      if (!still.getAttribute("src")) return;
+      if (!still.getAttribute("src") || still.src.startsWith("data:")) return;
+      // From now on take this door's still from Portier (works where HA's fails).
+      if (!el.portierStill) {
+        el.portierStill = true;
+        const d = ctrl.doors.get(door.entry_id);
+        if (d && el.isConnected && !this.live.has(door.entry_id)) this.refreshStill(el, d, true);
+        return;
+      }
       el.stillFails = (el.stillFails || 0) + 1;
       clearTimeout(el.stillRetry);
       el.stillRetry = setTimeout(() => {
@@ -2412,6 +2433,7 @@ class PortierPanel extends HTMLElement {
     }
     const door = ctrl.doors.get(entryId);
     const view = new CameraView(door.camera, () => this._hass || rootHass(), {
+      entryId,
       talk: !!door.talk,
       onTalk: el.talk.onTalk,
     });
@@ -2484,6 +2506,16 @@ class PortierPanel extends HTMLElement {
     const img = card.querySelector(".still");
     const pic = this.stillPic(door);
     card.stillPic = pic;
+    // Home Assistant's still did not work for this camera: Portier takes it (every 10 s at most).
+    if (pic && card.portierStill) {
+      const now = Date.now();
+      if (!force && now - (card.portierStillAt || 0) < 10000) return;
+      card.portierStillAt = now;
+      ctrl.portierStill(door.entry_id).then((url) => {
+        if (url && card.isConnected && !this.live.has(door.entry_id)) img.src = url;
+      });
+      return;
+    }
     if (pic) {
       const stamp = force ? Date.now() : Math.floor(Date.now() / 10000);
       const src = `${pic}${pic.includes("?") ? "&" : "?"}t=${stamp}`;
