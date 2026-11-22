@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.15.3";
+const VERSION = "1.15.4";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -271,6 +271,7 @@ class CameraView {
     this.media = null;
     this.pending = new Set(); // videos started but not shown yet
     this.gen = 0;
+    this.retries = 0;
     // In a background tab a live video stalls or falls behind; coming back fixes that.
     this.onVisible = () => {
       if (document.visibilityState === "hidden") {
@@ -282,6 +283,7 @@ class CameraView {
       if (!this.closed && away >= 3000) this.resume();
     };
     document.addEventListener("visibilitychange", this.onVisible);
+    this.watch = setInterval(() => this.checkAlive(), 2000);
     this.pc = null;
     this.unsub = null;
     this.closed = false;
@@ -299,6 +301,8 @@ class CameraView {
 
   async start() {
     const gen = ++this.gen; // a restart makes everything still running from before stale
+    this.starting = true;
+    this.startedAt = Date.now();
     const hass = this.hass;
     const state = hass?.states?.[this.entityId];
     if (this.talk) {
@@ -312,6 +316,7 @@ class CameraView {
     }
     if (!hass || !state) {
       if (this.talk) this.setTalk("unsupported");
+      this.starting = false;
       return this.message("Keine Kamera");
     }
     const pic = state.attributes.entity_picture;
@@ -351,11 +356,13 @@ class CameraView {
     // Talking needs WebRTC; the other ways only receive.
     if (this.talk && this.mode !== "webrtc") this.setTalk("unsupported");
     if (!this.mode) await this.mjpeg(hass);
+    if (gen === this.gen) this.starting = false;
   }
 
   /** A way delivered frames: show it, unless a better one is already on screen. */
   offer(video, mode, gen) {
     if (this.closed || gen !== this.gen || this.mode === "webrtc") return this.drop(video);
+    this.retries = 0;
     video.classList.remove("cam-pending");
     this.swap(video, mode);
     this.el.classList.add("live");
@@ -584,11 +591,46 @@ class CameraView {
     this.el.append(node);
   }
 
+  /**
+   * Watchdog while the picture is on screen: whatever stopped it (background tab, page
+   * change, network, phone standby), get it moving again instead of showing a still.
+   */
+  checkAlive() {
+    if (this.closed || document.visibilityState !== "visible" || !this.el.isConnected) return;
+    const now = Date.now();
+    if (this.starting) {
+      // Hidden while starting: the browser may not start a video at all, then the
+      // attempts time out. Do not wait for that forever.
+      if (now - this.startedAt > 25000) this.restart();
+      return;
+    }
+    if (!this.mode || this.mode === "none") {
+      // Nothing worked: try again, less often each time (5 s, 10 s, … up to 30 s).
+      const wait = Math.min(30000, 5000 * (this.retries + 1));
+      if (this.mode !== "none" && now - this.startedAt > wait) {
+        this.retries++;
+        this.restart();
+      }
+      return;
+    }
+    const v = this.media;
+    if (v?.tagName !== "VIDEO") return; // MJPEG streams by itself
+    if (v.paused) v.play?.().catch(() => {});
+    if (this.mode === "hls" && v.seekable?.length) {
+      const end = v.seekable.end(v.seekable.length - 1);
+      if (end - v.currentTime > 6) v.currentTime = Math.max(0, end - 1); // fell behind: back to now
+    }
+    if (v.currentTime === this.lastTime) {
+      if (++this.stuck >= 2 && now - this.startedAt > 5000) this.restart();
+    } else this.stuck = 0;
+    this.lastTime = v.currentTime;
+  }
+
   /** Back from the background: HLS would play on from the old, delayed spot, so it starts
    *  over; WebRTC is real-time and only starts over if it really stopped. */
   resume() {
-    if (!this.mode) return; // still starting: the running attempts carry on
-    if (this.mode === "hls") return this.restart();
+    if (this.starting) return; // the running attempts carry on (the watchdog checks later)
+    if (!this.mode || this.mode === "hls") return this.restart();
     const v = this.media;
     if (v?.tagName !== "VIDEO") return; // MJPEG keeps streaming by itself
     v.play?.().catch(() => {});
@@ -606,12 +648,15 @@ class CameraView {
     for (const v of this.pending) this.drop(v);
     this.pending.clear();
     this.mode = "";
+    this.stuck = 0;
+    this.lastTime = -1;
     this.start();
   }
 
   destroy() {
     this.closed = true;
     clearTimeout(this.aliveTimer);
+    clearInterval(this.watch);
     document.removeEventListener("visibilitychange", this.onVisible);
     this.stopWebrtc();
     for (const v of this.pending) this.drop(v);

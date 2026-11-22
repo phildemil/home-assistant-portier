@@ -83,6 +83,10 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   `component_loaded`, Selbst-Reload bei neuer Version), Overlay, Kamera (Standbild sofort, dann
   WebRTC über `camera/webrtc/offer` und HLS **gleichzeitig**, das erste mit echten Bildern
   gewinnt, WebRTC übernimmt auch später noch; sonst MJPEG), Editor, Panel.
+  Wächter in `CameraView.checkAlive` (alle 2 s, nur sichtbar): pausiert → play, steht → Neustart,
+  HLS > 6 s hinten → an die Live-Kante springen, nichts geht → Neustart mit Pause bis 30 s. Zurück
+  aus dem Hintergrund (≥ 3 s): HLS neu, WebRTC nur wenn es steht. Türklingel-Seite merkt sich offene
+  Livebilder (`panelLive`) und startet sie nach einem Seitenwechsel wieder.
 
 ## Warum der Lader in configuration.yaml nötig ist
 HA liefert Seiten aus, bevor Integrationen geladen sind. `add_extra_js_url` erreicht Seiten,
