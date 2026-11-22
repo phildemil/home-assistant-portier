@@ -835,3 +835,51 @@ async def test_colors_need_admin(hass: HomeAssistant, hass_ws_client, hass_read_
     client = await hass_ws_client(hass, hass_read_only_access_token)
     await client.send_json({"id": 1, "type": "portier/look/save", "mode": "system"})
     assert not (await client.receive_json())["success"]
+
+
+async def _preloaded(hass: HomeAssistant, entity_id: str) -> bool:
+    from homeassistant.components.camera.const import DATA_CAMERA_PREFS
+
+    return (await hass.data[DATA_CAMERA_PREFS].get_dynamic_stream_settings(entity_id)).preload_stream
+
+
+async def test_camera_kept_warm(hass: HomeAssistant, hass_ws_client) -> None:
+    """The door camera's stream is preloaded (on by default) and released when no longer needed."""
+    assert await async_setup_component(hass, "camera", {})
+    entry = await _setup(hass)
+    assert await _preloaded(hass, "camera.tuer")
+
+    client = await hass_ws_client(hass)
+    base = {"name": "Haustür", "trigger_entity": "binary_sensor.klingel", "opener_entity": "input_boolean.oeffner"}
+    # switched off in the editor -> off again
+    await client.send_json({"id": 1, "type": "portier/door/save", "entry_id": entry.entry_id,
+        "options": {**base, "camera_entity": "camera.tuer", "camera_preload": False}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert not await _preloaded(hass, "camera.tuer")
+
+    # on again, then another camera: the new one is warm, the old one released
+    await client.send_json({"id": 2, "type": "portier/door/save", "entry_id": entry.entry_id,
+        "options": {**base, "camera_entity": "camera.tuer", "camera_preload": True}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert await _preloaded(hass, "camera.tuer")
+    hass.states.async_set("camera.hof", "idle")
+    await client.send_json({"id": 3, "type": "portier/door/save", "entry_id": entry.entry_id,
+        "options": {**base, "camera_entity": "camera.hof", "camera_preload": True}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert await _preloaded(hass, "camera.hof")
+    assert not await _preloaded(hass, "camera.tuer")
+
+    # door deleted -> camera no longer kept warm
+    await client.send_json({"id": 4, "type": "portier/door/delete", "entry_id": entry.entry_id})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert not await _preloaded(hass, "camera.hof")
+
+
+async def test_preload_without_camera_integration(hass: HomeAssistant) -> None:
+    """No camera component loaded: setting up a door still works."""
+    entry = await _setup(hass)
+    assert entry.state.name == "LOADED"

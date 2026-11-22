@@ -19,11 +19,13 @@ jobs:
       - name: Testumgebung installieren
         run: |
           pip install pytest-homeassistant-custom-component
-          # Portier needs the HA frontend (panel, static files); install the exact
-          # version that this Home Assistant release asks for.
-          req=$(python -c "import json, pathlib, homeassistant.components.frontend as f; print(json.loads((pathlib.Path(f.__file__).parent / 'manifest.json').read_text())['requirements'][0])")
-          echo "Installiere $req"
-          pip install "$req"
+          # Portier needs the HA frontend (panel, static files) and the camera component
+          # (stream preload); install exactly what this Home Assistant release asks for.
+          for c in frontend camera; do
+            req=$(python -c "import json, pathlib, homeassistant.components as h; print(' '.join(json.loads((pathlib.Path(h.__file__).parent / '$c' / 'manifest.json').read_text())['requirements']))")
+            echo "Installiere $req"
+            pip install $req
+          done
       - name: Tests ausführen
         run: pytest -v
 

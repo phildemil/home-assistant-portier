@@ -103,7 +103,8 @@ Standardmäßig darf jeder angemeldete Benutzer öffnen, der die Kamera sehen da
 ## Grenzen
 
 - Das schwebende Livebild erscheint nur in Home-Assistant-Seiten, die beim Klingeln offen und sichtbar sind. Wer die App erst danach öffnet, bekommt kein verspätetes Livebild – dafür sind die Push-Nachrichten da.
-- Das Livebild kommt per WebRTC über Home Assistant (z. B. go2rtc, das in HA eingebaut ist). Geht das nicht, nimmt Portier HLS oder MJPEG. Bis das Video läuft, ist das letzte Standbild zu sehen.
+- Das Livebild kommt über Home Assistant: WebRTC (z. B. go2rtc, das in HA eingebaut ist) und HLS starten gleichzeitig, gezeigt wird, was zuerst Bilder liefert; sonst MJPEG. Bis das Video läuft, ist das letzte Standbild zu sehen.
+- **Livebild vorwärmen** (pro Tür, Standard an): Portier schaltet bei der Tür-Kamera Home Assistants „Stream vorladen“ ein. Dann ist das Livebild beim Klingeln in unter einer Sekunde da statt erst nach einigen Sekunden. Kostet etwas Rechenleistung und Netz. Wird die Kamera gewechselt, der Haken entfernt oder die Tür gelöscht, schaltet Portier es wieder aus (außer eine andere Tür braucht die Kamera).
 - Gegensprechen (2-Wege-Audio) ist noch nicht eingebaut. Das ist mit go2rtc und WebRTC möglich und als nächster Schritt vorgesehen.
 
 ## Tests

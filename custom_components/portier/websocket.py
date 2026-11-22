@@ -17,9 +17,18 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util, slugify
 
 from .config_flow import panel_options, telegram_chats
-from .const import DEFAULTS, DOMAIN, SIGNAL_DISMISS, SIGNAL_RING, SIGNAL_UPDATE
+from .const import (
+    CONF_CAMERA,
+    CONF_PRELOAD,
+    DEFAULTS,
+    DOMAIN,
+    SIGNAL_DISMISS,
+    SIGNAL_RING,
+    SIGNAL_UPDATE,
+)
 from .look import async_save_look, current_look
 from .manager import PortierDoor, all_doors, door_for
+from .preload import async_release_preload
 
 
 def _visible(connection: websocket_api.ActiveConnection, door: PortierDoor) -> bool:
@@ -277,8 +286,15 @@ async def ws_door_save(
         )
         connection.send_result(msg["id"], {"entry_id": result["result"].entry_id})
         return
+    old = dict(entry.options)
     hass.config_entries.async_update_entry(entry, title=options["name"], options=options)
     await hass.config_entries.async_reload(entry.entry_id)
+    # The door no longer keeps its old camera warm: switch that off (unless another door needs it).
+    old_camera = old.get(CONF_CAMERA)
+    if old.get(CONF_PRELOAD, True) and (
+        old_camera != options.get(CONF_CAMERA) or not options.get(CONF_PRELOAD, True)
+    ):
+        await async_release_preload(hass, old_camera, "")
     connection.send_result(msg["id"], {"entry_id": entry.entry_id})
 
 

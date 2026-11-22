@@ -34,6 +34,10 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - Farben (`look.py`, Store `portier.look`, `portier/look/save` nur Admin): Standard / Wie System
   (`--primary-color`/`--accent-color` des HA-Designs) / Eigene; gilt für alle Geräte, kommt im Snapshot
   (`look`) und wird als CSS-Variablen `--pt-brass*`/`--pt-verdigris*` auf Overlay und Panel gesetzt.
+- Livebild vorwärmen (`preload.py`, Option `camera_preload`, Standard an): setzt HAs Kamera-Einstellung
+  `preload_stream` und startet den Stream sofort (HA selbst lädt nur beim Start vor). Kamera gewechselt,
+  Haken weg oder Tür gelöscht → wieder aus, wenn keine andere Tür die Kamera vorwärmt. Kamera-Modul
+  wird nur lazy importiert (sonst bricht Portier ohne Kamera-Bibliotheken).
 - Verläufe: Klingelverlauf (Taster/Person) und Türöffner-Verlauf (wer, Weg), beide im Store (je 50).
   Wortwahl „Weg“: Livebild, Push- und Telegram-Meldung sagen für Push und HA-App kurz „App“;
   nur der Türöffner-Verlauf ist genau (Push-Nachricht / Home-Assistant-App / Browser).

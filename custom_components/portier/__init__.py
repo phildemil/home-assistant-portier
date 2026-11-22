@@ -14,6 +14,8 @@ from homeassistant.helpers.typing import ConfigType
 from .const import (
     ACTION_WINDOW_MAX,
     CONF_ACTION_WINDOW,
+    CONF_CAMERA,
+    CONF_PRELOAD,
     DOMAIN,
     OLD_ACTION_WINDOW_MINUTES,
     PLATFORMS,
@@ -21,6 +23,7 @@ from .const import (
 )
 from .frontend import async_door_added, async_register_frontend, async_remove_loader
 from .look import async_load_look, async_remove_look
+from .preload import async_release_preload
 from .manager import PortierDoor, all_doors, door_for
 from .websocket import async_register_websocket
 
@@ -107,6 +110,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> 
 async def async_remove_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> None:
     """Last door removed: take Portier's line out of configuration.yaml again."""
     others = [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]
+    if entry.options.get(CONF_PRELOAD, True):
+        await async_release_preload(hass, entry.options.get(CONF_CAMERA), entry.entry_id)
     if not others:
         await async_remove_loader(hass)
         await async_remove_look(hass)

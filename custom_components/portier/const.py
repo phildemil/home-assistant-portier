@@ -32,6 +32,7 @@ CONF_AFTER_OPEN_SECONDS: Final = "after_open_seconds"
 CONF_SOUND: Final = "sound"
 CONF_VOLUME: Final = "volume"
 CONF_TALK: Final = "talk"
+CONF_PRELOAD: Final = "camera_preload"
 # Open by NFC tag (Home Assistant app): tag entities, allowed phones (device ids),
 # optional time window ("HH:MM"), message to the push receivers after opening.
 CONF_NFC_TAGS: Final = "nfc_tags"
@@ -83,6 +84,7 @@ DEFAULTS: Final = {
     CONF_SOUND: SOUND_DINGDONG,
     CONF_VOLUME: 70,
     CONF_TALK: False,
+    CONF_PRELOAD: True,
     CONF_NFC_TAGS: [],
     CONF_NFC_DEVICES: [],
     CONF_NFC_FROM: None,

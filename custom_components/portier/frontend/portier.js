@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.14.2";
+const VERSION = "1.15.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1589,6 +1589,7 @@ class PortierEditor extends HTMLElement {
             ${this.num("live_seconds", "Livebild offen lassen", v.live_seconds, "s", 5, 3600)}
             ${this.num("after_open_seconds", "Nach dem Öffnen noch", v.after_open_seconds, "s", 1, 3600)}
           </div>
+          ${this.check("camera_preload", "Livebild vorwärmen", v.camera_preload, "Home Assistant hält den Kamerastream ständig offen („Stream vorladen“), damit das Livebild beim Klingeln sofort da ist statt erst nach einigen Sekunden. Kostet etwas Rechenleistung und Netz.")}
           ${this.check("talk", "Gegensprechen", v.talk, "Lautsprecher- und Sprechen-Knopf im Livebild. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https – sonst steht am Knopf, was fehlt.")}
         </fieldset>
         <details><summary>Feineinstellungen</summary><div>
@@ -1805,6 +1806,7 @@ class PortierEditor extends HTMLElement {
       gong_seconds: num("gong_seconds"),
       open_admin_only: f.elements.open_admin_only.checked,
       talk: f.elements.talk.checked,
+      camera_preload: f.elements.camera_preload.checked,
       trigger_edge: val("trigger_edge"),
       event_types: val("event_types"),
       debounce_seconds: num("debounce_seconds"),
