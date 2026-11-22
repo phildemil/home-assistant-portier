@@ -50,7 +50,6 @@ from .const import (
     CONF_PULSE_MODE,
     CONF_PULSE_SECONDS,
     CONF_SOUND,
-    CONF_PRELOAD,
     CONF_TALK,
     CONF_TRIGGER,
     CONF_TRIGGER_EDGE,
@@ -73,7 +72,6 @@ from .const import (
     EVENT_DISMISSED,
 )
 from .nfc import NfcOpener
-from .preload import async_set_preload
 from .notifications import Notifier
 
 _LOGGER = logging.getLogger(__name__)
@@ -195,10 +193,6 @@ class PortierDoor:
                 async_track_state_change_event(self.hass, watched, self._handle_watched)
             )
         self._unsubs.extend(self.notifier.async_listen())
-        if self.camera and self.opt(CONF_PRELOAD):
-            self.entry.async_create_background_task(
-                self.hass, async_set_preload(self.hass, self.camera, True), "portier_preload"
-            )
         self._unsubs.extend(self.nfc.async_listen())
 
     async def async_unload(self) -> None:

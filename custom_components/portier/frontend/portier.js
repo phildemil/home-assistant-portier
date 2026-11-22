@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.15.8";
+const VERSION = "1.15.9";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -1542,6 +1542,32 @@ class PortierEditor extends HTMLElement {
         </fieldset>`;
   }
 
+  /**
+   * "Keep the live picture warm" is Home Assistant's own camera setting ("preload stream"):
+   * the box shows what is set there. A newly chosen camera gets it ticked as a suggestion.
+   * Hidden for cameras without a stream (e.g. plain MJPEG) – nothing to keep warm there.
+   */
+  syncPreload(id) {
+    const row = this.querySelector("[data-f=camera_preload]");
+    if (!row) return;
+    const st = id ? this.hass.states[id] : null;
+    const canStream = !!st && ((st.attributes.supported_features || 0) & 2) !== 0;
+    row.hidden = !canStream;
+    if (!canStream || id === this.preloadFor) return;
+    this.preloadFor = id;
+    const box = row.querySelector("input");
+    if (id !== this.v.camera_entity) {
+      box.checked = true;
+      return;
+    }
+    this.hass
+      .callWS({ type: "camera/get_prefs", entity_id: id })
+      .then((prefs) => {
+        if (this.preloadFor === id) box.checked = !!prefs.preload_stream;
+      })
+      .catch(() => {});
+  }
+
   async open({ hass, entryId }) {
     this.hass = hass;
     this.entryId = entryId;
@@ -1733,11 +1759,7 @@ class PortierEditor extends HTMLElement {
         const st = this.hass.states[id];
         out.textContent = !id ? "" : st ? `✓ ${st.attributes.friendly_name || id}` : "Nicht gefunden";
         out.classList.toggle("missing", !!id && !st);
-        // "Keep the live picture warm" only makes sense with a camera.
-        if (inp.name === "camera_entity") {
-          const pre = this.querySelector("[data-f=camera_preload]");
-          if (pre) pre.hidden = !id;
-        }
+        if (inp.name === "camera_entity") this.syncPreload(id);
       };
       const field = inp.closest(".f");
       const dd = field.querySelector(".dd");

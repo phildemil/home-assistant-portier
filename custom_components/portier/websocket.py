@@ -28,7 +28,7 @@ from .const import (
 )
 from .look import async_save_look, current_look
 from .manager import PortierDoor, all_doors, door_for
-from .preload import async_release_preload
+from .preload import async_release_preload, async_set_preload
 
 
 def _visible(connection: websocket_api.ActiveConnection, door: PortierDoor) -> bool:
@@ -280,22 +280,27 @@ async def ws_door_save(
     if errors:
         connection.send_error(msg["id"], "invalid", json.dumps(errors, ensure_ascii=False))
         return
+    old = dict(entry.options) if entry else {}
     if entry is None:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": SOURCE_IMPORT}, data=options
         )
-        connection.send_result(msg["id"], {"entry_id": result["result"].entry_id})
-        return
-    old = dict(entry.options)
-    hass.config_entries.async_update_entry(entry, title=options["name"], options=options)
-    await hass.config_entries.async_reload(entry.entry_id)
-    # The door no longer keeps its old camera warm: switch that off (unless another door needs it).
+        entry_id = result["result"].entry_id
+    else:
+        entry_id = entry.entry_id
+        hass.config_entries.async_update_entry(entry, title=options["name"], options=options)
+        await hass.config_entries.async_reload(entry_id)
+    # "Keep warm" is Home Assistant's own camera setting: the editor shows it and saving
+    # sets it – only here, never behind the user's back at a restart.
+    camera = options.get(CONF_CAMERA)
+    if camera:
+        await async_set_preload(hass, camera, bool(options.get(CONF_PRELOAD, True)))
     old_camera = old.get(CONF_CAMERA)
-    if old.get(CONF_PRELOAD, True) and (
-        old_camera != options.get(CONF_CAMERA) or not options.get(CONF_PRELOAD, True)
-    ):
+    if old_camera and old_camera != camera and old.get(CONF_PRELOAD, True):
+        # The door no longer uses its old camera: stop keeping that one warm,
+        # unless another door still needs it.
         await async_release_preload(hass, old_camera, "")
-    connection.send_result(msg["id"], {"entry_id": entry.entry_id})
+    connection.send_result(msg["id"], {"entry_id": entry_id})
 
 
 @websocket_api.websocket_command(
