@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.3";
+const VERSION = "1.18.4";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -2021,8 +2021,10 @@ class PortierEditor extends HTMLElement {
 /* -------------------------------------------------------------------- panel */
 
 // Live views open on the Türklingel page; HA builds a new panel when you come back from
-// another page, which then starts them again by itself.
-const panelLive = new Set();
+// another page, which then starts them again by itself. They end by themselves after
+// 5 minutes (a camera that should always run can be shown on a dashboard instead).
+const PANEL_LIVE_MS = 5 * 60 * 1000;
+const panelLive = new Map(); // entry_id -> time the live view ends
 
 class PortierPanel extends HTMLElement {
   constructor() {
@@ -2339,7 +2341,7 @@ class PortierPanel extends HTMLElement {
       if (box.children[index] !== card) box.insertBefore(card, box.children[index] || null);
       this.fill(card, door);
       if (isNew && panelLive.has(door.entry_id) && door.camera && !this.live.has(door.entry_id)) {
-        this.toggleLive(door.entry_id, card);
+        this.toggleLive(door.entry_id, card, true);
       }
     });
     this.renderSoundState();
@@ -2418,7 +2420,7 @@ class PortierPanel extends HTMLElement {
     return el;
   }
 
-  toggleLive(entryId, el) {
+  toggleLive(entryId, el, restore = false) {
     const btn = el.querySelector(".live-btn");
     const existing = this.live.get(entryId);
     el.talk ??= wireTalk(el, () => this.live.get(entryId) || null);
@@ -2429,6 +2431,15 @@ class PortierPanel extends HTMLElement {
       panelLive.delete(entryId);
       btn.classList.remove("on");
       btn.textContent = "Live ansehen";
+      const d = ctrl.doors.get(entryId);
+      if (d && el.isConnected) this.refreshStill(el, d, true);
+      return;
+    }
+    // A live view started here ends by itself after PANEL_LIVE_MS; coming back to the
+    // page restores it only for the time that is left.
+    const until = restore ? panelLive.get(entryId) || 0 : Date.now() + PANEL_LIVE_MS;
+    if (until <= Date.now()) {
+      panelLive.delete(entryId);
       return;
     }
     const door = ctrl.doors.get(entryId);
@@ -2441,7 +2452,11 @@ class PortierPanel extends HTMLElement {
     win.insertBefore(view.el, win.querySelector(".plate-head"));
     view.start();
     this.live.set(entryId, view);
-    panelLive.add(entryId);
+    panelLive.set(entryId, until);
+    setTimeout(() => {
+      // Only if this very view is still running (not stopped, replaced or left).
+      if (this.live.get(entryId) === view) this.toggleLive(entryId, el);
+    }, until - Date.now());
     btn.classList.add("on");
     btn.textContent = "Live beenden";
   }
