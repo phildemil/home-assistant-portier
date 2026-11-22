@@ -44,7 +44,7 @@ async def async_set_preload(hass: HomeAssistant, entity_id: str | None, on: bool
             if stream := await camera.async_create_stream():
                 stream.add_provider("hls")
                 await stream.start()
-    except (HomeAssistantError, ImportError, AttributeError, TypeError, ValueError) as err:
+    except Exception as err:  # noqa: BLE001 – a convenience: never break a door over it
         _LOGGER.warning("Portier: Stream vorladen für %s nicht möglich: %s", entity_id, err)
 
 

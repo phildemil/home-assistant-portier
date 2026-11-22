@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 import shutil
-
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.util.yaml import Secrets
-from homeassistant.util.yaml.loader import load_yaml
+from typing import Any
 
 LOADER_URL = "/local/portier/loader.js"
 BACKUP_SUFFIX = ".portier-backup"
@@ -18,6 +16,30 @@ _TOP_KEY = re.compile(r"^([A-Za-z_][\w-]*)\s*:(.*)$")
 
 class CannotEdit(Exception):
     """The file is structured in a way we should not touch automatically."""
+
+
+def _load(config_path: Path) -> Any:
+    """Read configuration.yaml the way Home Assistant does (incl. !secret, !include).
+
+    Imported here, not at the top: if a future Home Assistant moves its YAML loader,
+    only this check fails (with a notice) – Portier itself keeps working.
+    """
+    try:
+        from homeassistant.util.yaml import Secrets  # noqa: PLC0415
+        from homeassistant.util.yaml.loader import load_yaml  # noqa: PLC0415
+    except ImportError as err:
+        raise CannotEdit(f"YAML loader not available: {err}") from err
+    return load_yaml(str(config_path), Secrets(config_path.parent))
+
+
+def _write(config_path: Path, text: str) -> None:
+    """Replace the file in one step: a power cut never leaves a half-written file."""
+    tmp = config_path.with_name(config_path.name + ".portier-tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, config_path)
 
 
 def _indent(line: str) -> int:
@@ -102,20 +124,21 @@ def install_loader(config_path: Path, url: str = LOADER_URL) -> bool:
     A backup is written first. If the edited file does not load as valid
     Home Assistant YAML with the loader in place, the backup is restored.
     """
-    original = config_path.read_text(encoding="utf-8")
+    # Read as it is on disk (line endings included), so a restore is byte-exact.
+    original = config_path.read_bytes().decode("utf-8")
     new = add_loader(original, url)
     if new == original:
         return False
     backup = config_path.with_name(config_path.name + BACKUP_SUFFIX)
     shutil.copy2(config_path, backup)
-    config_path.write_text(new, encoding="utf-8")
+    _write(config_path, new)
     try:
-        data = load_yaml(str(config_path), Secrets(config_path.parent))
+        data = _load(config_path)
         modules = ((data or {}).get("frontend") or {}).get("extra_module_url") or []
         if url not in modules:
             raise CannotEdit("check failed")
-    except (HomeAssistantError, CannotEdit, AttributeError, OSError) as err:
-        shutil.copy2(backup, config_path)
+    except Exception as err:  # noqa: BLE001 – whatever went wrong: put the original back
+        _write(config_path, original)
         raise CannotEdit(str(err)) from err
     return True
 
@@ -161,19 +184,20 @@ def remove_loader(text: str, url: str = LOADER_URL) -> str:
 
 def uninstall_loader(config_path: Path, url: str = LOADER_URL) -> bool:
     """Take the loader out of configuration.yaml again (backup + check)."""
-    original = config_path.read_text(encoding="utf-8")
+    # Read as it is on disk (line endings included), so a restore is byte-exact.
+    original = config_path.read_bytes().decode("utf-8")
     new = remove_loader(original, url)
     if new == original:
         return False
     backup = config_path.with_name(config_path.name + BACKUP_SUFFIX)
     shutil.copy2(config_path, backup)
-    config_path.write_text(new, encoding="utf-8")
+    _write(config_path, new)
     try:
-        data = load_yaml(str(config_path), Secrets(config_path.parent))
+        data = _load(config_path)
         modules = ((data or {}).get("frontend") or {}).get("extra_module_url") or []
         if url in modules:
             raise CannotEdit("still there")
-    except (HomeAssistantError, CannotEdit, AttributeError, OSError) as err:
-        shutil.copy2(backup, config_path)
+    except Exception as err:  # noqa: BLE001 – whatever went wrong: put the original back
+        _write(config_path, original)
         raise CannotEdit(str(err)) from err
     return True

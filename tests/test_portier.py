@@ -476,6 +476,16 @@ async def test_loader_notice_when_yaml_cannot_be_changed(hass: HomeAssistant, co
     assert issue is not None and not issue.is_fixable
 
 
+async def test_door_starts_even_if_yaml_is_unreadable(hass: HomeAssistant, config_yaml) -> None:
+    """A configuration.yaml that is not UTF-8 must not stop the door: notice only."""
+    from homeassistant.helpers import issue_registry as ir
+
+    config_yaml.write_bytes("homeassistant:\n  name: Hütte\n".encode("latin-1"))
+    entry = await _setup(hass)
+    assert entry.state.name == "LOADED"
+    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is not None
+
+
 async def test_talk_option(hass: HomeAssistant) -> None:
     """Two-way audio is off unless switched on, and reaches the frontend snapshot."""
     entry = await _setup(hass)

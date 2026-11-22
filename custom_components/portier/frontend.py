@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 
 from .const import DOMAIN, PANEL_URL, STATIC_URL
-from .yaml_setup import BACKUP_SUFFIX, LOADER_URL, CannotEdit, install_loader, uninstall_loader
+from .yaml_setup import BACKUP_SUFFIX, LOADER_URL, install_loader, uninstall_loader
 
 _DIR = Path(__file__).parent / "frontend"
 _FILE = "portier.js"
@@ -88,7 +88,7 @@ async def async_ensure_loader(hass: HomeAssistant) -> None:
 
     try:
         changed = await hass.async_add_executor_job(_install)
-    except (CannotEdit, OSError) as err:
+    except Exception as err:  # noqa: BLE001 – never stop a door from starting over this
         _LOGGER.warning(
             "Portier: Zeile %s konnte nicht in configuration.yaml eingetragen werden (%s)",
             LOADER_URL,
@@ -151,7 +151,7 @@ async def async_remove_loader(hass: HomeAssistant) -> None:
         changed = False
         try:
             changed = uninstall_loader(Path(hass.config.path("configuration.yaml")))
-        except (CannotEdit, OSError) as err:
+        except Exception as err:  # noqa: BLE001
             _LOGGER.warning(
                 "Portier: Zeile %s bitte selbst aus configuration.yaml entfernen (%s)",
                 LOADER_URL,

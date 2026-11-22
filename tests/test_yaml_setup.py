@@ -129,3 +129,24 @@ def test_uninstall_with_backup(tmp_path: Path):
     assert LOADER_URL not in cfg.read_text()
     assert (tmp_path / "configuration.yaml.portier-backup").exists()
     assert uninstall_loader(cfg) is False
+
+
+def test_line_endings_kept(tmp_path: Path):
+    """A Windows-edited configuration.yaml keeps its CRLF line endings."""
+    cfg = tmp_path / "configuration.yaml"
+    cfg.write_bytes(b"default_config:\r\nhomeassistant:\r\n  name: Haus\r\n")
+    assert install_loader(cfg) is True
+    raw = cfg.read_bytes()
+    assert b"\r\n" in raw and b"\n" not in raw.replace(b"\r\n", b"")
+    assert uninstall_loader(cfg) is True
+    assert cfg.read_bytes() == b"default_config:\r\nhomeassistant:\r\n  name: Haus\r\n"
+
+
+def test_failed_check_restores_exact_bytes(tmp_path: Path):
+    cfg = tmp_path / "configuration.yaml"
+    src = b"frontend:\r\n  themes: !include missing_folder_file.yaml\r\n"
+    cfg.write_bytes(src)
+    with pytest.raises(CannotEdit):
+        install_loader(cfg)
+    assert cfg.read_bytes() == src
+    assert not (tmp_path / "configuration.yaml.portier-tmp").exists()
