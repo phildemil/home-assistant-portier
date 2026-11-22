@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.15.4";
+const VERSION = "1.15.5";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -1439,10 +1439,7 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .editor .sub-block[hidden]{display:none}
 .editor summary{cursor:pointer;list-style:revert}
 .editor .preload{margin-top:-6px}
-.editor details.why{border-top:0;padding:0}
-.editor details.why summary{font-size:12px;font-weight:400;color:var(--pt-muted);margin:2px 0 0 28px}
-.editor details.why[open] summary{margin-bottom:4px}
-.editor details.why small{display:block;margin-left:28px}
+
 .f{display:grid;gap:6px}
 .f[hidden]{display:none}
 .f>span{font-size:14px}
@@ -1656,8 +1653,8 @@ class PortierEditor extends HTMLElement {
             "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.")}
           ${this.entityField("camera_entity", "Kamera", DOMAINS.camera, v.camera_entity)}
           <div class="f preload" data-f="camera_preload" ${v.camera_entity ? "" : "hidden"}>
-            <label class="chk"><input type="checkbox" name="camera_preload" ${v.camera_preload ? "checked" : ""}>Livebild vorwärmen – sofort da beim Klingeln</label>
-            <details class="why"><summary>Was bringt das?</summary><small>Home Assistant hält den Kamerastream ständig offen („Stream vorladen“). Dann ist das Livebild beim Klingeln in unter einer Sekunde da statt erst nach einigen Sekunden. Kostet etwas Rechenleistung und Netz. Bei reinen MJPEG-Kameras nicht nötig – die sind ohnehin sofort da.</small></details>
+            <label class="chk"><input type="checkbox" name="camera_preload" ${v.camera_preload ? "checked" : ""}>Livebild vorwärmen</label>
+            <small>Hält den Kamerastream offen, damit das Livebild beim Klingeln sofort da ist.</small>
           </div>
           ${this.entityField("opener_entity", "Türöffner", DOMAINS.opener, v.opener_entity,
             "Relais, Schalter oder Helfer bekommen einen Impuls. Schloss wird geöffnet, Taste gedrückt, Skript ausgeführt.")}
