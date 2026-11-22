@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.15.0";
+const VERSION = "1.15.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -389,9 +389,19 @@ class CameraView {
   }
 
   async hls(hass) {
-    const { url } = await hass.callWS({ type: "camera/stream", entity_id: this.entityId, format: "hls" });
-    if (this.closed) throw new Error("beendet");
-    return this.playing((v) => (v.src = url), 20000);
+    // A stream that is just starting (e.g. right after a restart) has no segments yet
+    // and the player gives up – so try again for a while instead of staying black.
+    const until = Date.now() + 20000;
+    for (;;) {
+      const { url } = await hass.callWS({ type: "camera/stream", entity_id: this.entityId, format: "hls" });
+      if (this.closed) throw new Error("beendet");
+      try {
+        return await this.playing((v) => (v.src = url), Math.max(2000, until - Date.now()));
+      } catch (err) {
+        if (this.closed || this.mode === "webrtc" || Date.now() > until - 2000) throw err;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
   }
 
   webrtc(hass) {
