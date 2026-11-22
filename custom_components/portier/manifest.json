@@ -1,7 +1,12 @@
 {
   "domain": "portier",
   "name": "Portier",
-  "version": "1.3.2",
+  "after_dependencies": [
+    "camera",
+    "mobile_app",
+    "telegram_bot",
+    "notify"
+  ],
   "codeowners": [
     "@phildemil"
   ],
@@ -13,13 +18,10 @@
     "repairs",
     "websocket_api"
   ],
-  "after_dependencies": [
-    "mobile_app",
-    "telegram_bot",
-    "notify"
-  ],
   "documentation": "https://github.com/phildemil/home-assistant-portier",
   "integration_type": "service",
   "iot_class": "local_push",
-  "requirements": []
+  "issue_tracker": "https://github.com/phildemil/home-assistant-portier/issues",
+  "requirements": [],
+  "version": "1.18.3"
 }

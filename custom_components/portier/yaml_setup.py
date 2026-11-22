@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
 import shutil
-
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.util.yaml import Secrets
-from homeassistant.util.yaml.loader import load_yaml
+from typing import Any
 
 LOADER_URL = "/local/portier/loader.js"
 BACKUP_SUFFIX = ".portier-backup"
@@ -18,6 +16,30 @@ _TOP_KEY = re.compile(r"^([A-Za-z_][\w-]*)\s*:(.*)$")
 
 class CannotEdit(Exception):
     """The file is structured in a way we should not touch automatically."""
+
+
+def _load(config_path: Path) -> Any:
+    """Read configuration.yaml the way Home Assistant does (incl. !secret, !include).
+
+    Imported here, not at the top: if a future Home Assistant moves its YAML loader,
+    only this check fails (with a notice) – Portier itself keeps working.
+    """
+    try:
+        from homeassistant.util.yaml import Secrets  # noqa: PLC0415
+        from homeassistant.util.yaml.loader import load_yaml  # noqa: PLC0415
+    except ImportError as err:
+        raise CannotEdit(f"YAML loader not available: {err}") from err
+    return load_yaml(str(config_path), Secrets(config_path.parent))
+
+
+def _write(config_path: Path, text: str) -> None:
+    """Replace the file in one step: a power cut never leaves a half-written file."""
+    tmp = config_path.with_name(config_path.name + ".portier-tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, config_path)
 
 
 def _indent(line: str) -> int:
@@ -102,19 +124,80 @@ def install_loader(config_path: Path, url: str = LOADER_URL) -> bool:
     A backup is written first. If the edited file does not load as valid
     Home Assistant YAML with the loader in place, the backup is restored.
     """
-    original = config_path.read_text(encoding="utf-8")
+    # Read as it is on disk (line endings included), so a restore is byte-exact.
+    original = config_path.read_bytes().decode("utf-8")
     new = add_loader(original, url)
     if new == original:
         return False
     backup = config_path.with_name(config_path.name + BACKUP_SUFFIX)
     shutil.copy2(config_path, backup)
-    config_path.write_text(new, encoding="utf-8")
+    _write(config_path, new)
     try:
-        data = load_yaml(str(config_path), Secrets(config_path.parent))
+        data = _load(config_path)
         modules = ((data or {}).get("frontend") or {}).get("extra_module_url") or []
         if url not in modules:
             raise CannotEdit("check failed")
-    except (HomeAssistantError, CannotEdit, AttributeError, OSError) as err:
-        shutil.copy2(backup, config_path)
+    except Exception as err:  # noqa: BLE001 – whatever went wrong: put the original back
+        _write(config_path, original)
+        raise CannotEdit(str(err)) from err
+    return True
+
+
+def remove_loader(text: str, url: str = LOADER_URL) -> str:
+    """Return the YAML text without the loader (the reverse of add_loader).
+
+    Empty `extra_module_url:` and `frontend:` keys that only held the loader are
+    removed as well. Inline lists and other unusual layouts raise CannotEdit.
+    """
+    if url not in text:
+        return text
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    hits = [i for i, line in enumerate(lines) if url in line]
+    for i in hits:
+        if lines[i].strip().split("#", 1)[0].strip() != f"- {url}":
+            raise CannotEdit("inline")
+    for i in reversed(hits):
+        del lines[i]
+
+    def _drop_empty_key(key: str, top_level: bool) -> None:
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.split("#", 1)[0].strip() != f"{key}:":
+                continue
+            if top_level != (_indent(line) == 0):
+                continue
+            nxt = next((j for j in range(i + 1, len(lines)) if _is_content(lines[j])), None)
+            if nxt is None or _indent(lines[nxt]) <= _indent(line):
+                del lines[i]
+                # drop a blank line we left behind before the key
+                if i > 0 and i <= len(lines) and not lines[i - 1].strip() and (
+                    i == len(lines) or not lines[i].strip()
+                ):
+                    del lines[i - 1]
+            return
+
+    _drop_empty_key("extra_module_url", top_level=False)
+    _drop_empty_key("frontend", top_level=True)
+    return newline.join(lines).rstrip("\r\n") + newline
+
+
+def uninstall_loader(config_path: Path, url: str = LOADER_URL) -> bool:
+    """Take the loader out of configuration.yaml again (backup + check)."""
+    # Read as it is on disk (line endings included), so a restore is byte-exact.
+    original = config_path.read_bytes().decode("utf-8")
+    new = remove_loader(original, url)
+    if new == original:
+        return False
+    backup = config_path.with_name(config_path.name + BACKUP_SUFFIX)
+    shutil.copy2(config_path, backup)
+    _write(config_path, new)
+    try:
+        data = _load(config_path)
+        modules = ((data or {}).get("frontend") or {}).get("extra_module_url") or []
+        if url in modules:
+            raise CannotEdit("still there")
+    except Exception as err:  # noqa: BLE001 – whatever went wrong: put the original back
+        _write(config_path, original)
         raise CannotEdit(str(err)) from err
     return True

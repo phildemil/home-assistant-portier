@@ -3,146 +3,24 @@
     "step": {
       "user": {
         "title": "New door",
-        "description": "Pick what you already have in Home Assistant. Only the doorbell button is required.",
+        "description": "Give the door a name. Everything else – doorbell button, camera, opener, notifications – is set up afterwards on the **Doorbell** page in the sidebar.",
         "data": {
-          "name": "Door name",
-          "trigger_entity": "Doorbell button",
-          "camera_entity": "Camera",
-          "opener_entity": "Door opener",
-          "contact_entity": "Door contact",
-          "gong_entity": "Chime / bell relay"
-        },
-        "data_description": {
-          "trigger_entity": "What fires when someone rings: binary sensor, event entity (e.g. Shelly input), button, switch or helper.",
-          "camera_entity": "Any camera that works in Home Assistant.",
-          "opener_entity": "Any relay (switch, light, helper) gets a pulse. Lock = open, button = press, script = run, cover = open.",
-          "contact_entity": "Optional: shows whether the door is open.",
-          "gong_entity": "Optional: a physical chime pulsed on every ring."
-        }
-      },
-      "notify": {
-        "title": "Notifications",
-        "description": "Where should a message go when someone rings? Can stay empty and be changed later.",
-        "data": {
-          "notify_services": "Push notifications",
-          "telegram_targets": "Telegram chat IDs",
-          "notify_allow_open": "\"Open door\" button in the message"
-        },
-        "data_description": {
-          "notify_services": "Phones with the Home Assistant app (mobile_app_…) get a camera picture and buttons. Other services get text.",
-          "telegram_targets": "Comma separated. Needs the Telegram bot integration. Sends a photo with an open button; only these chats may open.",
-          "notify_allow_open": "Phones require unlocking. Each button works only once."
+          "name": "Door name"
         }
       }
     },
     "error": {
-      "same_entity": "The opener cannot also be the doorbell button or chime.",
-      "opener_in_use": "This opener already belongs to another door."
+      "name_missing": "Please enter a name."
+    },
+    "create_entry": {
+      "first_door": "Door created.\n\n**Next:** [set up the door now]({url}) – doorbell button, camera, opener and notifications are on the **Doorbell** page in the sidebar.\n\nNothing else is needed, no restart. Only devices on which Home Assistant was already open before this (e.g. a wall tablet) have to reload the page once; in the app, close it completely once and open it again.",
+      "door_added": "Door created.\n\n**Next:** [set up the door now]({url}) on the **Doorbell** page in the sidebar."
     }
   },
   "options": {
-    "step": {
-      "init": {
-        "title": "Edit door",
-        "data": {
-          "name": "Door name",
-          "trigger_entity": "Doorbell button",
-          "camera_entity": "Camera",
-          "opener_entity": "Door opener",
-          "contact_entity": "Door contact",
-          "gong_entity": "Chime / bell relay"
-        },
-        "data_description": {
-          "trigger_entity": "What fires when someone rings: binary sensor, event entity (e.g. Shelly input), button, switch or helper.",
-          "camera_entity": "Any camera that works in Home Assistant.",
-          "opener_entity": "Any relay (switch, light, helper) gets a pulse. Lock = open, button = press, script = run, cover = open.",
-          "contact_entity": "Optional: shows whether the door is open.",
-          "gong_entity": "Optional: a physical chime pulsed on every ring."
-        },
-        "sections": {
-          "notifications": {
-            "name": "Notifications",
-            "data": {
-              "notify_services": "Push notifications",
-              "telegram_targets": "Telegram chat IDs",
-              "notify_allow_open": "\"Open door\" button in the message",
-              "notify_cooldown": "Minimum time between messages",
-              "action_window_minutes": "Open button valid for"
-            },
-            "data_description": {
-              "notify_services": "Phones with the Home Assistant app (mobile_app_…) get a camera picture and buttons. Other services get text.",
-              "telegram_targets": "Comma separated. Needs the Telegram bot integration. Sends a photo with an open button; only these chats may open.",
-              "notify_allow_open": "Phones require unlocking. Each button works only once.",
-              "action_window_minutes": "Afterwards the button in old messages does nothing."
-            }
-          },
-          "opener_options": {
-            "name": "Opener & chime",
-            "data": {
-              "pulse_mode": "Who switches the relay off?",
-              "pulse_seconds": "Opener pulse length",
-              "gong_seconds": "Chime pulse length",
-              "open_admin_only": "Only administrators may open"
-            },
-            "data_description": {
-              "pulse_mode": "Pick \"device\" only if the relay has its own auto-off timer (e.g. Shelly auto-off). That is the safest option."
-            }
-          },
-          "trigger_options": {
-            "name": "Doorbell button",
-            "data": {
-              "trigger_edge": "Trigger on",
-              "event_types": "Only these event types",
-              "debounce_seconds": "Debounce"
-            },
-            "data_description": {
-              "event_types": "Only for event entities, e.g. single_push. Empty = all."
-            }
-          },
-          "live_view": {
-            "name": "Live view & sound",
-            "data": {
-              "live_seconds": "Keep live view open",
-              "after_open_seconds": "Live view after opening",
-              "sound": "Browser ring tone",
-              "volume": "Volume"
-            }
-          }
-        }
-      }
-    },
-    "error": {
-      "same_entity": "The opener cannot also be the doorbell button or chime.",
-      "opener_in_use": "This opener already belongs to another door."
-    }
-  },
-  "selector": {
-    "edge": {
-      "options": {
-        "on": "Turning on (default)",
-        "off": "Turning off (inverted input)",
-        "both": "Both"
-      }
-    },
-    "pulse_mode": {
-      "options": {
-        "portier": "Portier switches off after the pulse",
-        "device": "Device (own auto-off timer)"
-      }
-    },
-    "sound": {
-      "options": {
-        "dingdong": "Ding-Dong",
-        "soft": "Soft",
-        "triple": "Triple chime",
-        "off": "Off"
-      }
-    },
-    "notify": {
-      "options": {}
-    },
-    "event_types": {
-      "options": {}
+    "step": {},
+    "abort": {
+      "use_panel": "All settings of this door are on the **Doorbell** page in the sidebar.\n\n[Edit door]({url})"
     }
   },
   "entity": {
@@ -209,22 +87,8 @@
   },
   "issues": {
     "loader_missing": {
-      "title": "Portier: one line missing in configuration.yaml",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Load Portier from the start",
-            "description": "So that the doorbell live view works on every tablet, browser and in the app right after each restart (e.g. after a power cut), Home Assistant must load Portier from the first second.\n\nPortier will add to your `configuration.yaml`:\n\n```yaml\nfrontend:\n  extra_module_url:\n    - {url}\n```\n\nA backup `configuration.yaml.portier-backup` is written first. The file is then checked; if it is not valid, the backup is restored."
-          },
-          "restart": {
-            "title": "Added – please restart",
-            "description": "The line is now in `configuration.yaml`. Restart Home Assistant (Settings → System → Restart) for it to take effect."
-          }
-        },
-        "abort": {
-          "cannot_edit": "Your `configuration.yaml` is structured in a way Portier cannot safely change automatically (e.g. `frontend:` via `!include`). Please add under `frontend:` by hand:\n\n```yaml\n  extra_module_url:\n    - {url}\n```\n\nThen restart Home Assistant."
-        }
-      }
+      "title": "Portier: please add one line to configuration.yaml",
+      "description": "Portier could not change your `configuration.yaml` safely (e.g. `frontend:` comes from `!include`). Without this line the live view does not appear on pages opened while Home Assistant starts (e.g. after a power cut).\n\nPlease add under `frontend:` by hand:\n\n```yaml\nfrontend:\n  extra_module_url:\n    - {url}\n```\n\nIt takes effect at the next start of Home Assistant."
     }
   }
 }

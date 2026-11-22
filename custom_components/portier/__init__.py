@@ -11,9 +11,21 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, PLATFORMS, SIGNAL_UPDATE
-from .frontend import async_register_frontend
+from .const import (
+    ACTION_WINDOW_MAX,
+    CONF_ACTION_WINDOW,
+    CONF_CAMERA,
+    CONF_PRELOAD,
+    DOMAIN,
+    OLD_ACTION_WINDOW_MINUTES,
+    PLATFORMS,
+    SIGNAL_UPDATE,
+)
+from .frontend import async_door_added, async_register_frontend, async_remove_loader
+from .look import async_load_look, async_remove_look
+from .preload import async_release_preload
 from .manager import PortierDoor, all_doors, door_for
+from .notifications import async_register_snapshots
 from .websocket import async_register_websocket
 
 type PortierConfigEntry = ConfigEntry[PortierDoor]
@@ -39,14 +51,16 @@ async def _require_admin(hass: HomeAssistant, call: ServiceCall) -> bool:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register services and the websocket API once."""
+    await async_load_look(hass)
     async_register_websocket(hass)
+    async_register_snapshots(hass)
     # The panel stays available as long as Portier is loaded, even with no door left,
     # so doors can be added right from it.
     await async_register_frontend(hass)
 
     async def ring(call: ServiceCall) -> None:
         for door in _doors_for_call(hass, call):
-            await door.async_ring(source="test")
+            await door.async_ring(source="test", context=call.context)
 
     async def open_door(call: ServiceCall) -> None:
         is_admin = await _require_admin(hass, call)
@@ -65,10 +79,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> bool:
+    """1.1 -> 1.2: the open-button window is given in seconds (max 2 min)."""
+    if entry.version == 1 and entry.minor_version < 2:
+        options = dict(entry.options)
+        minutes = options.pop(OLD_ACTION_WINDOW_MINUTES, None)
+        if minutes is not None and CONF_ACTION_WINDOW not in options:
+            options[CONF_ACTION_WINDOW] = min(float(minutes) * 60, ACTION_WINDOW_MAX)
+        hass.config_entries.async_update_entry(entry, options=options, minor_version=2)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> bool:
     door = PortierDoor(hass, entry)
     await door.async_setup()
     entry.runtime_data = door
+    await async_door_added(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_dispatcher_send(hass, SIGNAL_UPDATE, entry.entry_id)
     return True
@@ -83,3 +109,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> 
     return ok
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> None:
+    """Last door removed: take Portier's line out of configuration.yaml again."""
+    others = [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]
+    if entry.options.get(CONF_PRELOAD, True):
+        await async_release_preload(hass, entry.options.get(CONF_CAMERA), entry.entry_id)
+    if not others:
+        await async_remove_loader(hass)
+        await async_remove_look(hass)

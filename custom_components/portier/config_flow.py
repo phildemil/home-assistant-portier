@@ -1,4 +1,8 @@
-"""Setup and options forms."""
+"""Setup and options flows.
+
+Adding a door only asks for its name; everything else is set up in the
+"Türklingel" side panel, so there is one place for all settings.
+"""
 
 from __future__ import annotations
 
@@ -6,23 +10,11 @@ from typing import Any
 
 import probatio as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow, OptionsFlowWithReload
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.data_entry_flow import section
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.selector import (
-    BooleanSelector,
-    EntitySelector,
-    EntitySelectorConfig,
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
-    TextSelector,
-    TextSelectorConfig,
-)
+from homeassistant.helpers.selector import TextSelector
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ACTION_WINDOW,
@@ -36,6 +28,11 @@ from .const import (
     CONF_GONG_SECONDS,
     CONF_LIVE_SECONDS,
     CONF_NAME,
+    CONF_NFC_DEVICES,
+    CONF_NFC_FROM,
+    CONF_NFC_NOTIFY,
+    CONF_NFC_TAGS,
+    CONF_NFC_UNTIL,
     CONF_NOTIFY,
     CONF_NOTIFY_COOLDOWN,
     CONF_NOTIFY_OPEN,
@@ -43,6 +40,10 @@ from .const import (
     CONF_PULSE_MODE,
     CONF_PULSE_SECONDS,
     CONF_SOUND,
+    CONF_PRELOAD,
+    CONF_SNAPSHOT_DELAY,
+    CONF_SNAPSHOT_SOURCE,
+    CONF_TALK,
     CONF_TELEGRAM_TARGETS,
     CONF_TRIGGER,
     CONF_TRIGGER_EDGE,
@@ -55,12 +56,13 @@ from .const import (
     EDGE_ON,
     GONG_DOMAINS,
     OPENER_DOMAINS,
+    PANEL_URL,
     PULSE_DEVICE,
     PULSE_PORTIER,
-    SECTION_NOTIFY,
-    SECTION_OPENER,
-    SECTION_TRIGGER,
-    SECTION_VIEW,
+    SNAPSHOT_AUTO,
+    SNAPSHOT_DELAY_MAX,
+    SNAPSHOT_STILL,
+    SNAPSHOT_STREAM,
     SOUND_DINGDONG,
     SOUND_OFF,
     SOUND_SOFT,
@@ -69,120 +71,27 @@ from .const import (
 )
 
 DEVICE_KEYS = (CONF_TRIGGER, CONF_CAMERA, CONF_OPENER, CONF_CONTACT, CONF_GONG)
-SECTIONS = {
-    SECTION_TRIGGER: (CONF_TRIGGER_EDGE, CONF_EVENT_TYPES, CONF_DEBOUNCE),
-    SECTION_OPENER: (CONF_PULSE_MODE, CONF_PULSE_SECONDS, CONF_GONG_SECONDS, CONF_ADMIN_ONLY),
-    SECTION_NOTIFY: (
-        CONF_NOTIFY,
-        CONF_TELEGRAM_TARGETS,
-        CONF_NOTIFY_OPEN,
-        CONF_NOTIFY_COOLDOWN,
-        CONF_ACTION_WINDOW,
-    ),
-    SECTION_VIEW: (CONF_LIVE_SECONDS, CONF_AFTER_OPEN_SECONDS, CONF_SOUND, CONF_VOLUME),
-}
+# Link that opens the side panel's editor for a door ("new" = the door just added).
+EDIT_URL = f"/{PANEL_URL}?edit={{}}"
 
 
-def _entity(domains: list[str]) -> EntitySelector:
-    return EntitySelector(EntitySelectorConfig(domain=domains))
-
-
-def _num(minimum: float, maximum: float, step: float, unit: str) -> NumberSelector:
-    return NumberSelector(
-        NumberSelectorConfig(
-            min=minimum, max=maximum, step=step, unit_of_measurement=unit, mode=NumberSelectorMode.BOX
-        )
-    )
-
-
-def _select(options: list[str], key: str, *, multiple: bool = False, custom: bool = False):
-    return SelectSelector(
-        SelectSelectorConfig(
-            options=options,
-            translation_key=key,
-            multiple=multiple,
-            custom_value=custom,
-            mode=SelectSelectorMode.DROPDOWN,
-        )
-    )
-
-
-def _opt(key: str, values: dict[str, Any]) -> vol.Optional:
-    """Optional field pre-filled with the current or default value."""
-    value = values.get(key, DEFAULTS.get(key))
-    if value in (None, "", []):
-        return vol.Optional(key)
-    return vol.Optional(key, description={"suggested_value": value})
-
-
-def _notify_services(hass: HomeAssistant) -> list[str]:
-    skip = {"send_message", "persistent_notification"}
-    return sorted(s for s in hass.services.async_services_for_domain("notify") if s not in skip)
-
-
-def _device_fields(values: dict[str, Any], with_name: bool) -> dict:
-    fields: dict = {}
-    if with_name:
-        fields[vol.Required(CONF_NAME, default=values.get(CONF_NAME, "Haustür"))] = TextSelector()
-    fields[
-        vol.Required(CONF_TRIGGER, description={"suggested_value": values.get(CONF_TRIGGER)})
-    ] = _entity(TRIGGER_DOMAINS)
-    fields[_opt(CONF_CAMERA, values)] = _entity(["camera"])
-    fields[_opt(CONF_OPENER, values)] = _entity(OPENER_DOMAINS)
-    fields[_opt(CONF_CONTACT, values)] = _entity(CONTACT_DOMAINS)
-    fields[_opt(CONF_GONG, values)] = _entity(GONG_DOMAINS)
-    return fields
-
-
-def _section_fields(hass: HomeAssistant, values: dict[str, Any]) -> dict:
-    trigger = {
-        _opt(CONF_TRIGGER_EDGE, values): _select([EDGE_ON, EDGE_OFF, EDGE_BOTH], "edge"),
-        _opt(CONF_EVENT_TYPES, values): _select([], "event_types", multiple=True, custom=True),
-        _opt(CONF_DEBOUNCE, values): _num(0, 30, 0.1, "s"),
-    }
-    opener = {
-        _opt(CONF_PULSE_MODE, values): _select([PULSE_PORTIER, PULSE_DEVICE], "pulse_mode"),
-        _opt(CONF_PULSE_SECONDS, values): _num(0.1, 60, 0.1, "s"),
-        _opt(CONF_GONG_SECONDS, values): _num(0.1, 30, 0.1, "s"),
-        _opt(CONF_ADMIN_ONLY, values): BooleanSelector(),
-    }
-    notify = {
-        _opt(CONF_NOTIFY, values): _select(
-            _notify_services(hass), "notify", multiple=True, custom=True
-        ),
-        _opt(CONF_TELEGRAM_TARGETS, values): TextSelector(TextSelectorConfig()),
-        _opt(CONF_NOTIFY_OPEN, values): BooleanSelector(),
-        _opt(CONF_NOTIFY_COOLDOWN, values): _num(0, 600, 1, "s"),
-        _opt(CONF_ACTION_WINDOW, values): _num(1, 60, 1, "min"),
-    }
-    view = {
-        _opt(CONF_LIVE_SECONDS, values): _num(5, 3600, 1, "s"),
-        _opt(CONF_AFTER_OPEN_SECONDS, values): _num(1, 3600, 1, "s"),
-        _opt(CONF_SOUND, values): _select(
-            [SOUND_DINGDONG, SOUND_SOFT, SOUND_TRIPLE, SOUND_OFF], "sound"
-        ),
-        _opt(CONF_VOLUME, values): _num(0, 100, 5, "%"),
-    }
-    return {
-        vol.Required(SECTION_NOTIFY): section(vol.Schema(notify), {"collapsed": False}),
-        vol.Required(SECTION_OPENER): section(vol.Schema(opener), {"collapsed": True}),
-        vol.Required(SECTION_TRIGGER): section(vol.Schema(trigger), {"collapsed": True}),
-        vol.Required(SECTION_VIEW): section(vol.Schema(view), {"collapsed": True}),
-    }
-
-
-def _flatten(user_input: dict[str, Any]) -> dict[str, Any]:
-    """Merge section dicts into one flat options dict, dropping empty device fields."""
-    flat: dict[str, Any] = {}
-    for key, value in user_input.items():
-        if key in SECTIONS and isinstance(value, dict):
-            flat.update(value)
-        else:
-            flat[key] = value
-    for key in DEVICE_KEYS:
-        if not flat.get(key):
-            flat[key] = None
-    return flat
+def telegram_chats(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """The allowed chats set up in the Telegram bot integration, by name."""
+    chats: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for entry in hass.config_entries.async_entries("telegram_bot"):
+        for sub in getattr(entry, "subentries", {}).values():
+            if sub.subentry_type != "allowed_chat_ids":
+                continue
+            try:
+                chat_id = int(sub.data.get("chat_id"))
+            except (TypeError, ValueError):
+                continue
+            if chat_id in seen:
+                continue
+            seen.add(chat_id)
+            chats.append({"id": chat_id, "name": sub.title or str(chat_id)})
+    return chats
 
 
 def _validate(
@@ -196,6 +105,11 @@ def _validate(
         for entry in hass.config_entries.async_entries(DOMAIN):
             if entry.entry_id != own_entry_id and entry.options.get(CONF_OPENER) == opener:
                 errors[CONF_OPENER] = "opener_in_use"
+    if flat.get(CONF_NFC_TAGS):
+        if not opener:
+            errors[CONF_NFC_TAGS] = "nfc_needs_opener"
+        elif not flat.get(CONF_NFC_DEVICES):
+            errors[CONF_NFC_DEVICES] = "nfc_needs_phone"
     return errors
 
 
@@ -211,6 +125,16 @@ def _domain_entity(domains: list[str]):
     return check
 
 
+def _time_or_none(value: Any) -> str | None:
+    """'7:05' / '07:05:00' -> '07:05:00'; empty -> None."""
+    if value in (None, ""):
+        return None
+    parsed = dt_util.parse_time(str(value).strip())
+    if parsed is None:
+        raise vol.Invalid("Uhrzeit wie 07:00 eingeben")
+    return parsed.strftime("%H:%M:%S")
+
+
 def _list_of_str(value: Any) -> list[str]:
     if value in (None, ""):
         return []
@@ -223,7 +147,7 @@ def _list_of_str(value: Any) -> list[str]:
 PANEL_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_NAME): vol.All(str, vol.Strip, vol.Length(min=1, max=60)),
-        vol.Required(CONF_TRIGGER): _domain_entity(TRIGGER_DOMAINS),
+        vol.Optional(CONF_TRIGGER): _domain_entity(TRIGGER_DOMAINS),
         vol.Optional(CONF_CAMERA): _domain_entity(["camera"]),
         vol.Optional(CONF_OPENER): _domain_entity(OPENER_DOMAINS),
         vol.Optional(CONF_CONTACT): _domain_entity(CONTACT_DOMAINS),
@@ -239,11 +163,22 @@ PANEL_SCHEMA = vol.Schema(
         vol.Optional(CONF_TELEGRAM_TARGETS): vol.Any(None, str),
         vol.Optional(CONF_NOTIFY_OPEN): bool,
         vol.Optional(CONF_NOTIFY_COOLDOWN): vol.All(vol.Coerce(float), vol.Range(0, 600)),
-        vol.Optional(CONF_ACTION_WINDOW): vol.All(vol.Coerce(float), vol.Range(1, 60)),
+        vol.Optional(CONF_ACTION_WINDOW): vol.All(vol.Coerce(float), vol.Range(1, 120)),
         vol.Optional(CONF_LIVE_SECONDS): vol.All(vol.Coerce(int), vol.Range(5, 3600)),
         vol.Optional(CONF_AFTER_OPEN_SECONDS): vol.All(vol.Coerce(int), vol.Range(1, 3600)),
         vol.Optional(CONF_SOUND): vol.In([SOUND_DINGDONG, SOUND_SOFT, SOUND_TRIPLE, SOUND_OFF]),
         vol.Optional(CONF_VOLUME): vol.All(vol.Coerce(int), vol.Range(0, 100)),
+        vol.Optional(CONF_TALK): bool,
+        vol.Optional(CONF_PRELOAD): bool,
+        vol.Optional(CONF_SNAPSHOT_SOURCE): vol.In([SNAPSHOT_AUTO, SNAPSHOT_STREAM, SNAPSHOT_STILL]),
+        vol.Optional(CONF_SNAPSHOT_DELAY): vol.All(
+            vol.Coerce(float), vol.Range(0, SNAPSHOT_DELAY_MAX)
+        ),
+        vol.Optional(CONF_NFC_TAGS): _list_of_str,
+        vol.Optional(CONF_NFC_DEVICES): _list_of_str,
+        vol.Optional(CONF_NFC_FROM): _time_or_none,
+        vol.Optional(CONF_NFC_UNTIL): _time_or_none,
+        vol.Optional(CONF_NFC_NOTIFY): bool,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -266,12 +201,10 @@ def panel_options(
 
 
 class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Create a door."""
+    """Create a door: just its name, the rest happens in the side panel."""
 
     VERSION = 1
-
-    def __init__(self) -> None:
-        self._data: dict[str, Any] = {}
+    MINOR_VERSION = 2
 
     async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
         """Door created from the side panel (already validated)."""
@@ -282,32 +215,28 @@ class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            flat = _flatten(user_input)
-            errors = _validate(self.hass, flat, None)
-            if not errors:
-                self._data = flat
-                return await self.async_step_notify()
+            name = str(user_input.get(CONF_NAME) or "").strip()[:60]
+            if name:
+                first = not self.hass.config_entries.async_entries(DOMAIN)
+                options = {
+                    **DEFAULTS,
+                    **dict.fromkeys(DEVICE_KEYS),
+                    CONF_NAME: name,
+                    CONF_TELEGRAM_TARGETS: "",
+                }
+                return self.async_create_entry(
+                    title=name,
+                    data={},
+                    options=options,
+                    description="first_door" if first else "door_added",
+                    description_placeholders={"url": EDIT_URL.format("new")},
+                )
+            errors[CONF_NAME] = "name_missing"
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(_device_fields(user_input or {}, with_name=True)),
+            data_schema=vol.Schema({vol.Required(CONF_NAME, default="Haustür"): TextSelector()}),
             errors=errors,
         )
-
-    async def async_step_notify(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        if user_input is not None:
-            options = {**DEFAULTS, **self._data, **user_input}
-            return self.async_create_entry(title=self._data[CONF_NAME], data={}, options=options)
-        values = dict(DEFAULTS)
-        fields = {
-            _opt(CONF_NOTIFY, values): _select(
-                _notify_services(self.hass), "notify", multiple=True, custom=True
-            ),
-            _opt(CONF_TELEGRAM_TARGETS, values): TextSelector(TextSelectorConfig()),
-            _opt(CONF_NOTIFY_OPEN, values): BooleanSelector(),
-        }
-        return self.async_show_form(step_id="notify", data_schema=vol.Schema(fields))
 
     @staticmethod
     @callback
@@ -315,31 +244,11 @@ class PortierConfigFlow(ConfigFlow, domain=DOMAIN):
         return PortierOptionsFlow()
 
 
-class PortierOptionsFlow(OptionsFlowWithReload):
-    """Change everything later."""
+class PortierOptionsFlow(OptionsFlow):
+    """"Configure" only points to the side panel, where all settings live."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-        current = {**DEFAULTS, **self.config_entry.options}
-        if user_input is not None:
-            flat = _flatten(user_input)
-            for key in (CONF_NOTIFY, CONF_EVENT_TYPES):
-                flat.setdefault(key, [])
-            flat.setdefault(CONF_TELEGRAM_TARGETS, "")
-            errors = _validate(self.hass, flat, self.config_entry.entry_id)
-            if not errors:
-                options = {**current, **flat}
-                if options.get(CONF_NAME) and options[CONF_NAME] != self.config_entry.title:
-                    self.hass.config_entries.async_update_entry(
-                        self.config_entry, title=options[CONF_NAME]
-                    )
-                return self.async_create_entry(data=options)
-            current = {**current, **flat}
-        schema = {
-            vol.Required(CONF_NAME, default=current.get(CONF_NAME) or self.config_entry.title): (
-                TextSelector()
-            ),
-            **_device_fields(current, with_name=False),
-            **_section_fields(self.hass, current),
-        }
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(schema), errors=errors)
+        return self.async_abort(
+            reason="use_panel",
+            description_placeholders={"url": EDIT_URL.format(self.config_entry.entry_id)},
+        )

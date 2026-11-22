@@ -1,7 +1,9 @@
 """End-to-end tests against a real Home Assistant core."""
 
 from datetime import timedelta
+import time
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -10,6 +12,8 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
     async_mock_service,
 )
+
+import pytest
 
 from custom_components.portier.const import DEFAULTS, DOMAIN
 
@@ -24,6 +28,34 @@ BASE = {
     "debounce_seconds": 2.0,
     "pulse_seconds": 3.0,
 }
+
+
+@pytest.fixture(autouse=True)
+def config_yaml(hass: HomeAssistant, tmp_path, monkeypatch):
+    """Every test gets its own configuration.yaml (Portier writes its loader line there)."""
+    cfg = tmp_path / "configuration.yaml"
+    cfg.write_text("default_config:\n")
+    real_path = hass.config.path
+    monkeypatch.setattr(
+        hass.config, "path", lambda *p: str(cfg) if p == ("configuration.yaml",) else real_path(*p)
+    )
+    return cfg
+
+
+@pytest.fixture
+def picture(hass: HomeAssistant, monkeypatch):
+    """The door camera delivers a picture (counts how often it was asked)."""
+    import homeassistant.components.camera as camera
+
+    calls = []
+
+    async def fake_get_image(_hass, entity_id, timeout=10, width=None, height=None):
+        calls.append((entity_id, timeout))
+        return camera.Image("image/jpeg", b"JPEGDATA")
+
+    monkeypatch.setattr(camera, "async_get_image", fake_get_image)
+    hass.config.components.add("camera")
+    return calls
 
 
 async def _setup(hass: HomeAssistant, **options):
@@ -45,39 +77,33 @@ async def _press(hass):
 
 
 async def test_config_flow(hass: HomeAssistant) -> None:
-    hass.states.async_set("binary_sensor.klingel", "off")
+    """Adding a door only asks for the name; everything else lives in the side panel."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
     assert result["type"] == "form"
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"name": "Haustür", "trigger_entity": "binary_sensor.klingel"},
-    )
-    assert result["step_id"] == "notify"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert [str(k) for k in result["data_schema"].schema] == ["name"]
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "  "})
+    assert result["errors"] == {"name": "name_missing"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "Haustür"})
     assert result["type"] == "create_entry"
-    assert result["options"]["trigger_entity"] == "binary_sensor.klingel"
+    assert result["options"]["trigger_entity"] is None
     assert result["options"]["opener_entity"] is None
+    assert result["options"]["sound"] == DEFAULTS["sound"]
+    # First door: the dialog links to the editor and mentions reloading open devices.
+    assert result["description"] == "first_door"
+    assert result["description_placeholders"]["url"] == "/portier?edit=new"
     await hass.async_block_till_done()
     entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert entry.state is ConfigEntryState.LOADED
 
-    # Options flow with sections round-trips
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "Garten"})
+    assert result["description"] == "door_added"
+    await hass.async_block_till_done()
+
+    # "Configure" in Devices & services points to the side panel editor of this door.
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] == "form"
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "name": "Vorne",
-            "trigger_entity": "binary_sensor.klingel",
-            "notifications": {"notify_cooldown": 10},
-            "opener_options": {},
-            "trigger_options": {},
-            "live_view": {"live_seconds": 90},
-        },
-    )
-    assert result["type"] == "create_entry"
-    assert entry.options["live_seconds"] == 90
-    assert entry.options["notify_cooldown"] == 10
-    assert entry.title == "Vorne"
+    assert result["type"] == "abort" and result["reason"] == "use_panel"
+    assert result["description_placeholders"]["url"] == f"/portier?edit={entry.entry_id}"
 
 
 async def test_ring_edge_debounce_and_entities(hass: HomeAssistant) -> None:
@@ -160,7 +186,11 @@ async def test_mobile_push_and_action(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert len(calls) == 1
     data = calls[0].data["data"]
-    assert data["image"] == "/api/camera_proxy/camera.tuer"
+    # The phone gets Portier's ring picture (same one as Telegram), not the camera itself.
+    assert data["image"].startswith("/api/portier/snapshot/")
+    # Tapping the notification opens this door's live picture; no extra "Livebild" button.
+    assert data["clickAction"] == data["url"] == f"/portier?show={entry.entry_id}"
+    assert len(data["actions"]) == 1
     action = data["actions"][0]["action"]
     assert action.startswith("PORTIER_OPEN_")
     assert data["actions"][0]["authenticationRequired"] is True
@@ -190,7 +220,7 @@ async def test_push_cooldown(hass: HomeAssistant) -> None:
     assert len(calls) == 1
 
 
-async def test_telegram_photo_and_callback(hass: HomeAssistant) -> None:
+async def test_telegram_photo_and_callback(hass: HomeAssistant, picture, hass_client_no_auth) -> None:
     photos = async_mock_service(hass, "telegram_bot", "send_photo")
     async_mock_service(hass, "telegram_bot", "send_message")
     answers = async_mock_service(hass, "telegram_bot", "answer_callback_query")
@@ -200,7 +230,13 @@ async def test_telegram_photo_and_callback(hass: HomeAssistant) -> None:
     assert len(photos) == 1
     sent = photos[0].data
     assert sent["chat_id"] == [12345, -99]
-    assert "/api/camera_proxy/camera.tuer?token=abc" in sent["url"]
+    # The picture is taken once (with a short limit) and served by Portier itself.
+    assert picture == [("camera.tuer", 4)]
+    assert "/api/portier/snapshot/" in sent["url"]
+    client = await hass_client_no_auth()
+    resp = await client.get(sent["url"].split("8123", 1)[-1] if "8123" in sent["url"] else "/" + sent["url"].split("/", 3)[3])
+    assert resp.status == 200 and await resp.read() == b"JPEGDATA"
+    assert (await client.get("/api/portier/snapshot/wrong")).status == 404
     label, command = sent["inline_keyboard"][0][0]
     assert command.startswith("/portier_open ")
 
@@ -223,7 +259,7 @@ async def test_no_open_button_without_opener(hass: HomeAssistant) -> None:
     await _setup(hass, opener_entity=None, notify_services=["mobile_app_pixel"])
     await _press(hass)
     await hass.async_block_till_done()
-    actions = calls[0].data["data"]["actions"]
+    actions = calls[0].data["data"].get("actions", [])
     assert all(not a["action"].startswith("PORTIER_OPEN_") for a in actions)
     assert not [s for s in hass.states.async_all("button") if "open_door" in s.entity_id]
 
@@ -250,6 +286,37 @@ async def test_websocket_subscribe_and_open(hass: HomeAssistant, hass_ws_client)
             break
     assert msg["success"]
     assert hass.states.get("input_boolean.oeffner").state == "on"
+    # Without a hint, a normal (non-app) login counts as browser.
+    assert entry.runtime_data.snapshot(True)["opens"][0]["via"] == "browser"
+
+    # The live view names the kind of device that pressed the button.
+    await client.send_json({"id": 3, "type": "portier/open", "entry_id": entry.entry_id, "client": "ha_app"})
+    while True:
+        msg = await client.receive_json()
+        if msg.get("id") == 3 and msg["type"] == "result":
+            break
+    assert msg["success"]
+    snap = entry.runtime_data.snapshot(True)
+    assert snap["opens"][0]["via"] == "ha_app"
+    assert snap["opens"][0]["time"] == snap["last_opened"]
+
+
+async def test_open_from_phone_app_login(hass: HomeAssistant, hass_ws_client, hass_admin_user) -> None:
+    """The Android/iOS app is recognised by its login, even if the page sends "browser"."""
+    entry = await _setup(hass)
+    refresh = await hass.auth.async_create_refresh_token(
+        hass_admin_user, "https://home-assistant.io/android"
+    )
+    client = await hass_ws_client(hass, hass.auth.async_create_access_token(refresh))
+    await client.send_json(
+        {"id": 1, "type": "portier/open", "entry_id": entry.entry_id, "client": "browser"}
+    )
+    while True:
+        msg = await client.receive_json()
+        if msg.get("id") == 1 and msg["type"] == "result":
+            break
+    assert msg["success"], msg
+    assert entry.runtime_data.snapshot(True)["opens"][0]["via"] == "ha_app"
 
 
 async def test_unload_switches_off(hass: HomeAssistant) -> None:
@@ -310,6 +377,15 @@ async def test_panel_create_edit_delete(hass: HomeAssistant, hass_ws_client) -> 
     assert (await client.receive_json())["success"]
     await hass.async_block_till_done()
     assert hass.config_entries.async_get_entry(new_id) is None
+
+    # every device is optional: a door with only a name (e.g. a gate without bell button)
+    await client.send_json({"id": 7, "type": "portier/door/save", "options": {"name": "Garten"}})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    await hass.async_block_till_done()
+    garden = hass.config_entries.async_get_entry(msg["result"]["entry_id"])
+    assert garden.state is ConfigEntryState.LOADED
+    assert garden.options["trigger_entity"] is None
 
 
 async def test_panel_edit_requires_admin(hass: HomeAssistant, hass_ws_client, hass_read_only_access_token) -> None:
@@ -384,11 +460,9 @@ async def test_dismiss_closes_ring_everywhere(hass: HomeAssistant, hass_ws_clien
     assert got_b == {"type": "dismiss", "entry_id": entry.entry_id, "ring_time": ring_time}
 
 
-async def test_loader_file_endpoint_and_repair(hass: HomeAssistant, hass_client) -> None:
+async def test_loader_written_with_first_door(hass: HomeAssistant, hass_client, config_yaml) -> None:
     from pathlib import Path
     from homeassistant.helpers import issue_registry as ir
-    from homeassistant.components import frontend
-    from custom_components.portier.frontend import LOADER_URL, _async_check_loader
 
     await async_setup_component(hass, "http", {})
     await _setup(hass)
@@ -398,35 +472,612 @@ async def test_loader_file_endpoint_and_repair(hass: HomeAssistant, hass_client)
     r = await client.get("/portier_static/current")
     assert r.status == 200
     assert (await r.json())["url"].startswith("/portier_static/portier.js?v=")
-    # without the YAML line a repair notice is shown ...
-    reg = ir.async_get(hass)
-    assert reg.async_get_issue("portier", "loader_missing") is not None
-    # ... and it disappears once the loader is configured
-    frontend.add_extra_js_url(hass, LOADER_URL)
-    _async_check_loader(hass)
-    assert reg.async_get_issue("portier", "loader_missing") is None
+    # The line is in configuration.yaml right away, with a backup, and no notice or restart.
+    text = config_yaml.read_text()
+    assert "default_config:" in text and "/local/portier/loader.js" in text
+    assert (config_yaml.parent / "configuration.yaml.portier-backup").exists()
+    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is None
+    # A second door does not touch the file again.
+    before = config_yaml.stat().st_mtime_ns
+    second = MockConfigEntry(domain=DOMAIN, title="Garten", options={**BASE, "name": "Garten", "opener_entity": None})
+    second.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+    assert config_yaml.stat().st_mtime_ns == before
+    assert config_yaml.read_text().count("/local/portier/loader.js") == 1
 
 
-async def test_repair_flow_writes_yaml(hass: HomeAssistant, hass_client, tmp_path, monkeypatch) -> None:
-    from homeassistant.components.repairs import DOMAIN as REPAIRS
+async def test_loader_notice_when_yaml_cannot_be_changed(hass: HomeAssistant, config_yaml) -> None:
+    from homeassistant.helpers import issue_registry as ir
+
+    original = "default_config:\nfrontend: !include frontend.yaml\n"
+    config_yaml.write_text(original)
+    (config_yaml.parent / "frontend.yaml").write_text("themes: {}\n")
+    await _setup(hass)
+    # Left untouched; a notice explains the manual step (no button that could break things).
+    assert config_yaml.read_text() == original
+    issue = ir.async_get(hass).async_get_issue("portier", "loader_missing")
+    assert issue is not None and not issue.is_fixable
+
+
+async def test_door_starts_even_if_yaml_is_unreadable(hass: HomeAssistant, config_yaml) -> None:
+    """A configuration.yaml that is not UTF-8 must not stop the door: notice only."""
+    from homeassistant.helpers import issue_registry as ir
+
+    config_yaml.write_bytes("homeassistant:\n  name: Hütte\n".encode("latin-1"))
+    entry = await _setup(hass)
+    assert entry.state.name == "LOADED"
+    assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is not None
+
+
+async def test_talk_option(hass: HomeAssistant) -> None:
+    """Two-way audio is off unless switched on, and reaches the frontend snapshot."""
+    entry = await _setup(hass)
+    assert entry.runtime_data.snapshot(True)["talk"] is False
+    entry2 = await _setup(hass, talk=True, opener_entity=None, trigger_entity="binary_sensor.klingel2")
+    assert entry2.runtime_data.snapshot(True)["talk"] is True
+
+
+async def _telegram_ring(hass: HomeAssistant, picture):
+    from homeassistant.core import SupportsResponse
+
+    async_mock_service(
+        hass,
+        "telegram_bot",
+        "send_photo",
+        response={"chats": [{"chat_id": 12345, "message_id": 7}]},
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    async_mock_service(hass, "telegram_bot", "send_message")
+    edits = async_mock_service(hass, "telegram_bot", "edit_caption")
+    entry = await _setup(hass, telegram_targets="12345", action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    return entry, edits
+
+
+async def test_telegram_shows_opened(hass: HomeAssistant, picture) -> None:
+    entry, edits = await _telegram_ring(hass, picture)
+    await entry.runtime_data.async_open(via="app")
+    await hass.async_block_till_done()
+    assert len(edits) == 1
+    assert edits[0].data["message_id"] == 7
+    assert edits[0].data["chat_id"] == 12345
+    assert edits[0].data["inline_keyboard"] == []
+    assert "✅ Tür geöffnet" in edits[0].data["caption"]
+    # Opening again later does not touch the message a second time.
+    await entry.runtime_data.async_open(via="app")
+    await hass.async_block_till_done()
+    assert len(edits) == 1
+
+
+async def test_telegram_button_expires(hass: HomeAssistant, picture) -> None:
+    _entry, edits = await _telegram_ring(hass, picture)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert len(edits) == 1
+    assert edits[0].data["inline_keyboard"] == []
+    assert "nicht mehr möglich" in edits[0].data["caption"]
+
+
+async def test_push_shows_opened(hass: HomeAssistant) -> None:
+    """After opening, every phone's ring notification is replaced quietly, without button."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    tablet = async_mock_service(hass, "notify", "mobile_app_tablet")
+    entry = await _setup(
+        hass, notify_services=["mobile_app_pixel", "mobile_app_tablet"], action_window_seconds=120
+    )
+    await _press(hass)
+    await hass.async_block_till_done()
+    action = pixel[0].data["data"]["actions"][0]["action"]
+    hass.bus.async_fire("mobile_app_notification_action", {"action": action})
+    await hass.async_block_till_done()
+    for calls in (pixel, tablet):
+        assert len(calls) == 2
+        ring, done = calls[0].data, calls[1].data
+        assert done["data"]["tag"] == ring["data"]["tag"] == f"portier_{entry.entry_id}"
+        assert "actions" not in done["data"]
+        assert done["data"]["alert_once"] is True
+        assert done["data"]["importance"] == "low"
+        assert done["data"]["push"]["interruption-level"] == "passive"
+        assert done["title"].startswith("✅")
+        assert "Tür geöffnet" in done["message"] and "über die App" in done["message"]
+    # Nothing more later: no expiry note, no second replacement.
+    await entry.runtime_data.async_open(via="app")
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert len(pixel) == 2
+
+
+async def test_push_button_expires(hass: HomeAssistant) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"], action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert len(pixel) == 2
+    late = pixel[1].data
+    assert "actions" not in late["data"]
+    assert "nicht mehr möglich" in late["message"]
+    assert late["data"]["push"]["interruption-level"] == "passive"
+
+
+async def test_push_without_button_is_not_replaced(hass: HomeAssistant) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, opener_entity=None, notify_services=["mobile_app_pixel"])
+    await _press(hass)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=300))
+    await hass.async_block_till_done()
+    assert len(pixel) == 1
+
+
+async def test_migrate_window_minutes_to_seconds(hass: HomeAssistant) -> None:
+    opts = {k: v for k, v in BASE.items() if k != "action_window_seconds"}
+    opts["action_window_minutes"] = 5
+    entry = MockConfigEntry(domain=DOMAIN, title="Haustür", options=opts, version=1, minor_version=1)
+    entry.add_to_hass(hass)
+    await async_setup_component(hass, "input_boolean", {"input_boolean": {"oeffner": {}}})
+    hass.states.async_set("binary_sensor.klingel", "off")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.minor_version == 2
+    assert entry.options["action_window_seconds"] == 120
+    assert "action_window_minutes" not in entry.options
+
+
+async def test_removing_last_door_removes_loader(hass: HomeAssistant, tmp_path, monkeypatch) -> None:
+    from pathlib import Path
+
     from homeassistant.helpers import issue_registry as ir
 
     cfg = tmp_path / "configuration.yaml"
-    cfg.write_text("default_config:\n")
+    cfg.write_text("default_config:\nfrontend:\n  extra_module_url:\n    - /local/portier/loader.js\n")
     real_path = hass.config.path
     monkeypatch.setattr(hass.config, "path", lambda *p: str(cfg) if p == ("configuration.yaml",) else real_path(*p))
-    await async_setup_component(hass, "http", {})
-    await async_setup_component(hass, REPAIRS, {})
-    await _setup(hass)
-    assert ir.async_get(hass).async_get_issue("portier", "loader_missing").is_fixable
-    client = await hass_client()
-    r = await client.post("/api/repairs/issues/fix", json={"handler": "portier", "issue_id": "loader_missing"})
-    flow = await r.json()
-    assert flow["step_id"] == "confirm"
-    r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
-    flow = await r.json()
-    assert flow["step_id"] == "restart"
+    first = await _setup(hass)
+    second = MockConfigEntry(domain=DOMAIN, title="Garten", options={**BASE, "name": "Garten"})
+    second.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+    loader = Path(hass.config.path("www", "portier", "loader.js"))
+    assert loader.exists()
+
+    # One door left: nothing is touched.
+    await hass.config_entries.async_remove(first.entry_id)
+    await hass.async_block_till_done()
     assert "/local/portier/loader.js" in cfg.read_text()
-    r = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
-    assert (await r.json())["type"] == "create_entry"
+
+    # Last door gone: line and loader file are removed again.
+    await hass.config_entries.async_remove(second.entry_id)
+    await hass.async_block_till_done()
+    assert "/local/portier/loader.js" not in cfg.read_text()
+    assert not loader.exists()
+
+    # Installed again right away (no restart): the first new door puts everything back.
+    await _setup(hass)
+    assert "/local/portier/loader.js" in cfg.read_text()
+    assert loader.exists()
     assert ir.async_get(hass).async_get_issue("portier", "loader_missing") is None
+
+
+async def test_all_phones_reaches_every_app_once(hass: HomeAssistant) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    tablet = async_mock_service(hass, "notify", "mobile_app_tablet")
+    mail = async_mock_service(hass, "notify", "mail")
+    # "all phones" plus one phone ticked singly: still one message per phone.
+    await _setup(hass, notify_services=["all_mobile_apps", "mobile_app_pixel", "mail"])
+    # A phone added after setup is included too.
+    later = async_mock_service(hass, "notify", "mobile_app_neu")
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert (len(pixel), len(tablet), len(later), len(mail)) == (1, 1, 1, 1)
+    assert "actions" in pixel[0].data["data"]  # phones get picture + open button
+
+
+async def test_open_history_who_and_how(hass: HomeAssistant, hass_admin_user) -> None:
+    from homeassistant.core import Context
+
+    async_mock_service(hass, "telegram_bot", "send_photo")
+    async_mock_service(hass, "telegram_bot", "send_message")
+    async_mock_service(hass, "telegram_bot", "answer_callback_query")
+    entry = await _setup(hass, telegram_targets="12345")
+    door = entry.runtime_data
+
+    # From the Home Assistant page: the logged-in user.
+    await door.async_open(context=Context(user_id=hass_admin_user.id), via="app")
+    # From an automation: no user.
+    await door.async_open(context=Context(), via="service")
+    # From Telegram: the Telegram name.
+    await _press(hass)
+    await hass.async_block_till_done()
+    command = None
+    for token in list(door.notifier._tokens):
+        command = f"/portier_open {token}"
+    hass.bus.async_fire(
+        "telegram_callback",
+        {"data": command, "chat_id": 12345, "id": "q1", "from_first": "Max", "from_last": "Muster"},
+    )
+    await hass.async_block_till_done()
+
+    opens = door.snapshot(True)["opens"]
+    assert [(o["via"], o["who"]) for o in opens] == [
+        ("telegram", "Max Muster"),
+        ("service", None),
+        ("app", hass_admin_user.name),
+    ]
+
+    # Kept across a restart (reload of the entry).
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    again = entry.runtime_data.snapshot(True)
+    assert [o["via"] for o in again["opens"]] == ["telegram", "service", "app"]
+    assert again["last_opened"] == opens[0]["time"]
+
+
+async def test_ring_history_who_and_entity(hass: HomeAssistant, hass_admin_user) -> None:
+    from homeassistant.core import Context
+
+    entry = await _setup(hass)
+    door = entry.runtime_data
+    name = {"friendly_name": "Klingeltaste unten"}
+    hass.states.async_set("binary_sensor.klingel", "on", name)
+    await hass.async_block_till_done()
+    hass.states.async_set("binary_sensor.klingel", "off", name)
+    await door.async_ring(source="test", context=Context(user_id=hass_admin_user.id))
+    await hass.async_block_till_done()
+    history = door.snapshot(True)["history"]
+    assert (history[0]["source"], history[0]["who"]) == ("test", hass_admin_user.name)
+    assert history[1]["source"] == "trigger"
+    assert history[1]["entity"] == "binary_sensor.klingel"
+    assert history[1]["who"] == "Klingeltaste unten"
+
+
+async def _nfc_door(hass: HomeAssistant, **options):
+    hass.states.async_set("tag.haustuer", "unknown", {"tag_id": "abc-123", "friendly_name": "Haustür"})
+    opts = {"nfc_tags": ["tag.haustuer"], "nfc_devices": ["phone-kind"], **options}
+    return await _setup(hass, **opts)
+
+
+async def test_nfc_opens_for_allowed_phone(hass: HomeAssistant, hass_admin_user) -> None:
+    from homeassistant.core import Context
+
+    notes = async_mock_service(hass, "notify", "mobile_app_eltern")
+    entry = await _nfc_door(hass, nfc_notify=True, notify_services=["mobile_app_eltern"])
+    opened = []
+    hass.bus.async_listen("portier_opened", opened.append)
+
+    # Unknown phone at the right tag: nothing.
+    hass.bus.async_fire("tag_scanned", {"tag_id": "abc-123", "device_id": "phone-fremd"})
+    # Allowed phone at another tag: nothing.
+    hass.bus.async_fire("tag_scanned", {"tag_id": "other", "device_id": "phone-kind"})
+    await hass.async_block_till_done()
+    assert not opened
+
+    # Allowed phone at the door's tag: opens, logged with the user, parents told.
+    hass.bus.async_fire(
+        "tag_scanned",
+        {"tag_id": "abc-123", "device_id": "phone-kind"},
+        context=Context(user_id=hass_admin_user.id),
+    )
+    await hass.async_block_till_done()
+    assert len(opened) == 1
+    assert opened[0].data["via"] == "nfc"
+    assert hass.states.get("input_boolean.oeffner").state == "on"
+    last = entry.runtime_data.snapshot(True)["opens"][0]
+    assert (last["via"], last["who"]) == ("nfc", hass_admin_user.name)
+    assert len(notes) == 1
+    assert "per NFC geöffnet" in notes[0].data["message"]
+
+
+async def test_nfc_respects_time_window(hass: HomeAssistant) -> None:
+    now = dt_util.now()
+    start = (now + timedelta(hours=1)).strftime("%H:%M:%S")
+    end = (now + timedelta(hours=2)).strftime("%H:%M:%S")
+    await _nfc_door(hass, nfc_from=start, nfc_until=end)
+    opened = []
+    hass.bus.async_listen("portier_opened", opened.append)
+    hass.bus.async_fire("tag_scanned", {"tag_id": "abc-123", "device_id": "phone-kind"})
+    await hass.async_block_till_done()
+    assert not opened
+
+
+def test_nfc_time_window_over_midnight() -> None:
+    from datetime import time
+
+    from custom_components.portier.nfc import in_window
+
+    assert in_window(time(23, 0), time(22, 0), time(6, 0))
+    assert in_window(time(5, 59), time(22, 0), time(6, 0))
+    assert not in_window(time(12, 0), time(22, 0), time(6, 0))
+    assert in_window(time(12, 0), None, None)
+    assert not in_window(time(6, 30), time(7, 0), None)
+
+
+async def test_nfc_needs_phone_and_opener(hass: HomeAssistant) -> None:
+    from custom_components.portier.config_flow import panel_options
+
+    base = {**BASE}
+    _, errors = panel_options(hass, {**base, "nfc_tags": ["tag.haustuer"], "nfc_devices": []}, None, base)
+    assert errors.get("nfc_devices") == "nfc_needs_phone"
+    _, errors = panel_options(
+        hass, {**base, "opener_entity": "", "nfc_tags": ["tag.x"], "nfc_devices": ["p"]}, None, base
+    )
+    assert errors.get("nfc_tags") == "nfc_needs_opener"
+    options, errors = panel_options(
+        hass, {**base, "nfc_tags": ["tag.x"], "nfc_devices": ["p"], "nfc_from": "7:00"}, None, base
+    )
+    assert not errors
+    assert options["nfc_from"] == "07:00:00"
+
+
+async def test_ring_history_survives_restart(hass: HomeAssistant) -> None:
+    entry = await _setup(hass)
+    await _press(hass)
+    await hass.async_block_till_done()
+    before = entry.runtime_data.snapshot(True)
+    assert len(before["history"]) == 1
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    after = entry.runtime_data.snapshot(True)
+    assert after["history"] == before["history"]
+    assert after["last_ring"] == before["last_ring"]
+
+
+async def test_colors_shared_by_all_devices(hass: HomeAssistant, hass_ws_client, hass_storage) -> None:
+    """The two accent colors are one setting on the server, sent to every page."""
+    entry = await _setup(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "portier/subscribe"})
+    assert (await client.receive_json())["success"]
+    snap = (await client.receive_json())["event"]
+    assert snap["look"]["mode"] == "default"
+
+    await client.send_json({"id": 2, "type": "portier/look/save", "mode": "custom", "accent": "#3366ff", "accent2": "#ff8800"})
+    result = None
+    pushed = None
+    while result is None or pushed is None:
+        msg = await client.receive_json()
+        if msg.get("id") == 2 and msg["type"] == "result":
+            result = msg
+        elif msg.get("id") == 1 and msg["event"]["type"] == "snapshot":
+            pushed = msg["event"]
+    assert result["success"]
+    assert pushed["look"] == {"mode": "custom", "accent": "#3366ff", "accent2": "#ff8800"}
+    assert hass_storage["portier.look"]["data"]["accent"] == "#3366ff"
+
+    # Invalid colors are refused.
+    await client.send_json({"id": 3, "type": "portier/look/save", "mode": "custom", "accent": "blau"})
+    while (msg := await client.receive_json()).get("id") != 3 or msg["type"] != "result":
+        pass
+    assert not msg["success"]
+
+    # Back to standard also forgets the picked colors.
+    await client.send_json({"id": 4, "type": "portier/look/save", "mode": "default"})
+    while (msg := await client.receive_json()).get("id") != 4 or msg["type"] != "result":
+        pass
+    assert msg["result"] == {"mode": "default", "accent": "#C9A44C", "accent2": "#4FA38A"}
+
+    # Removing the last door forgets the colors.
+    await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert "portier.look" not in hass_storage
+
+
+async def test_colors_need_admin(hass: HomeAssistant, hass_ws_client, hass_read_only_access_token) -> None:
+    await _setup(hass)
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+    await client.send_json({"id": 1, "type": "portier/look/save", "mode": "system"})
+    assert not (await client.receive_json())["success"]
+
+
+async def _preloaded(hass: HomeAssistant, entity_id: str) -> bool:
+    from homeassistant.components.camera.const import DATA_CAMERA_PREFS
+
+    return (await hass.data[DATA_CAMERA_PREFS].get_dynamic_stream_settings(entity_id)).preload_stream
+
+
+async def test_camera_kept_warm(hass: HomeAssistant, hass_ws_client) -> None:
+    """"Keep warm" is HA's own camera setting: set when saving, never behind the user's back."""
+    from homeassistant.components.camera.const import DATA_CAMERA_PREFS
+
+    assert await async_setup_component(hass, "camera", {})
+    entry = await _setup(hass)
+    # Starting (or restarting) a door does not touch the camera setting.
+    assert not await _preloaded(hass, "camera.tuer")
+
+    client = await hass_ws_client(hass)
+    base = {"name": "Haustür", "trigger_entity": "binary_sensor.klingel", "opener_entity": "input_boolean.oeffner"}
+    # saved with the box ticked (default) -> on
+    await client.send_json({"id": 10, "type": "portier/door/save", "entry_id": entry.entry_id,
+        "options": {**base, "camera_entity": "camera.tuer"}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert await _preloaded(hass, "camera.tuer")
+    # switched off in Home Assistant's camera settings: a restart of the door keeps it off
+    await hass.data[DATA_CAMERA_PREFS].async_update("camera.tuer", preload_stream=False)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert not await _preloaded(hass, "camera.tuer")
+    await hass.data[DATA_CAMERA_PREFS].async_update("camera.tuer", preload_stream=True)
+    # switched off in the editor -> off again
+    await client.send_json({"id": 11, "type": "portier/door/save", "entry_id": entry.entry_id,
+        "options": {**base, "camera_entity": "camera.tuer", "camera_preload": False}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert not await _preloaded(hass, "camera.tuer")
+
+    # on again, then another camera: the new one is warm, the old one released
+    await client.send_json({"id": 12, "type": "portier/door/save", "entry_id": entry.entry_id,
+        "options": {**base, "camera_entity": "camera.tuer", "camera_preload": True}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert await _preloaded(hass, "camera.tuer")
+    hass.states.async_set("camera.hof", "idle")
+    await client.send_json({"id": 13, "type": "portier/door/save", "entry_id": entry.entry_id,
+        "options": {**base, "camera_entity": "camera.hof", "camera_preload": True}})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert await _preloaded(hass, "camera.hof")
+    assert not await _preloaded(hass, "camera.tuer")
+
+    # door deleted -> camera no longer kept warm
+    await client.send_json({"id": 14, "type": "portier/door/delete", "entry_id": entry.entry_id})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert not await _preloaded(hass, "camera.hof")
+
+
+async def test_preload_without_camera_integration(hass: HomeAssistant) -> None:
+    """No camera component loaded: setting up a door still works."""
+    entry = await _setup(hass)
+    assert entry.state.name == "LOADED"
+
+
+async def test_telegram_text_at_once_without_picture(hass: HomeAssistant, monkeypatch) -> None:
+    """A camera that delivers no picture: Telegram gets the text right away (with button)."""
+    import homeassistant.components.camera as camera
+    from homeassistant.exceptions import HomeAssistantError
+
+    async def broken(*_args, **_kw):
+        raise HomeAssistantError("Unable to get image")
+
+    monkeypatch.setattr(camera, "async_get_image", broken)
+    hass.config.components.add("camera")
+    photos = async_mock_service(hass, "telegram_bot", "send_photo")
+    texts = async_mock_service(hass, "telegram_bot", "send_message")
+    await _setup(hass, telegram_targets="12345")
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert not photos
+    assert len(texts) == 1 and texts[0].data["inline_keyboard"]
+
+
+async def test_app_and_telegram_share_one_picture(
+    hass: HomeAssistant, picture, hass_client_no_auth
+) -> None:
+    """One ring = one question to the camera; the app and Telegram show the same picture."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    photos = async_mock_service(hass, "telegram_bot", "send_photo")
+    async_mock_service(hass, "telegram_bot", "send_message")
+    await _setup(hass, notify_services=["mobile_app_pixel"], telegram_targets="12345")
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert len(picture) == 1
+    app_path = pixel[0].data["data"]["image"]
+    assert photos[0].data["url"].endswith(app_path)
+    client = await hass_client_no_auth()
+    resp = await client.get(app_path)
+    assert resp.status == 200 and await resp.read() == b"JPEGDATA"
+
+
+async def test_opened_push_shows_fresh_picture(hass: HomeAssistant, picture) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    entry = await _setup(hass, notify_services=["mobile_app_pixel"], action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_open(via="app")
+    await hass.async_block_till_done()
+    assert pixel[1].data["data"]["image"] == "/api/camera_proxy/camera.tuer"
+
+
+async def test_expired_push_keeps_ring_picture(hass: HomeAssistant, picture) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"], action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert pixel[1].data["data"]["image"] == pixel[0].data["data"]["image"]
+
+
+async def test_picture_from_running_stream(hass: HomeAssistant, picture, monkeypatch) -> None:
+    """No still address, stream kept warm: the picture comes straight from the stream."""
+    import homeassistant.components.camera.helper as helper
+
+    class FakeStream:
+        available = True
+
+        async def async_get_image(self, *args, **kwargs):
+            return b"FROMSTREAM"
+
+    class FakeCamera:
+        use_stream_for_stills = True
+        stream = FakeStream()
+
+    monkeypatch.setattr(helper, "get_camera_from_entity_id", lambda _hass, _eid: FakeCamera())
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"])
+    await _press(hass)
+    await hass.async_block_till_done()
+    store = hass.data["portier_snapshots"]
+    token = pixel[0].data["data"]["image"].rsplit("/", 1)[1]
+    assert await store[token][0] == (b"FROMSTREAM", "image/jpeg")
+    assert picture == []  # Home Assistant's usual (slower) way was not needed
+
+
+def _fake_stream(monkeypatch, has_still: bool = False):
+    import homeassistant.components.camera.helper as helper
+
+    class FakeStream:
+        available = True
+
+        async def async_get_image(self, *args, **kwargs):
+            return b"FROMSTREAM"
+
+    class FakeCamera:
+        use_stream_for_stills = not has_still
+        stream = FakeStream()
+
+    monkeypatch.setattr(helper, "get_camera_from_entity_id", lambda _hass, _eid: FakeCamera())
+
+
+async def _ring_picture(hass, pixel):
+    store = hass.data["portier_snapshots"]
+    image = next(c.data["data"].get("image") for c in pixel if c.data["data"].get("image"))
+    return await store[image.rsplit("/", 1)[1]][0]
+
+
+async def test_picture_source_choice(hass: HomeAssistant, picture, monkeypatch) -> None:
+    """"Standbild der Kamera" skips the stream; "Aus dem Livebild" uses it even with a still address."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    _fake_stream(monkeypatch, has_still=True)
+    entry = await _setup(hass, notify_services=["mobile_app_pixel"], snapshot_source="stream",
+                         notify_cooldown=0, debounce_seconds=0)
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert await _ring_picture(hass, pixel) == (b"FROMSTREAM", "image/jpeg")
+
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "snapshot_source": "still"})
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    pixel.clear()
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert await _ring_picture(hass, pixel) == (b"JPEGDATA", "image/jpeg")
+
+
+async def test_delayed_picture_message_waits_for_it(hass: HomeAssistant, picture) -> None:
+    """Picture set to 1 s after the ring: the message comes with it, once it is taken."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"], snapshot_delay=1)
+    start = time.monotonic()
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert len(pixel) == 1 and time.monotonic() - start >= 1
+    assert pixel[0].data["data"]["image"].startswith("/api/portier/snapshot/")
+    assert picture  # taken before the message went out
+
+
+async def test_still_from_portier(hass: HomeAssistant, picture, hass_ws_client) -> None:
+    """The door card can ask Portier for a still (where Home Assistant's own one fails)."""
+    import base64
+
+    entry = await _setup(hass, snapshot_delay=5)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "portier/still", "entry_id": entry.entry_id})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert base64.b64decode(msg["result"]["data"]) == b"JPEGDATA"  # no ring delay here
+    await client.send_json({"id": 2, "type": "portier/still", "entry_id": "nope"})
+    assert not (await client.receive_json())["success"]
