@@ -29,10 +29,16 @@ from .const import (
     CONF_NOTIFY,
     CONF_NOTIFY_COOLDOWN,
     CONF_NOTIFY_OPEN,
+    CONF_SNAPSHOT_DELAY,
+    CONF_SNAPSHOT_SOURCE,
     CONF_TELEGRAM_TARGETS,
     DOMAIN,
     NOTIFY_ALL_MOBILE,
     PANEL_URL,
+    SNAPSHOT_AUTO,
+    SNAPSHOT_DELAY_MAX,
+    SNAPSHOT_STILL,
+    SNAPSHOT_STREAM,
 )
 
 if TYPE_CHECKING:
@@ -85,7 +91,9 @@ class SnapshotView(HomeAssistantView):
         if not item or item[1] < time.monotonic():
             return web.Response(status=404)
         try:
-            picture = await asyncio.wait_for(asyncio.shield(item[0]), SNAPSHOT_TIMEOUT + 2)
+            picture = await asyncio.wait_for(
+                asyncio.shield(item[0]), SNAPSHOT_DELAY_MAX + 2 * SNAPSHOT_TIMEOUT + 2
+            )
         except Exception:  # noqa: BLE001 – no picture is a plain 404
             picture = None
         if not picture:
@@ -197,6 +205,10 @@ class Notifier:
         rang = dt_util.now().strftime("%H:%M:%S")
         message = f"Es klingelt · {rang}"
 
+        # Picture set to a moment after the ring: the messages go out once it is taken.
+        # Without a delay they go out at once (the phone fetches the picture when ready).
+        if snapshot and self._snapshot_delay() > 0:
+            await snapshot[1]
         phones: list[str] = []
         for service in services:
             try:
@@ -215,6 +227,12 @@ class Notifier:
             if snapshot and await snapshot[1]:
                 photo_url = self._absolute(picture_path)
             await self._send_telegram(targets, f"{title}\n{message}", token, photo_url)
+
+    def _snapshot_delay(self) -> float:
+        try:
+            return max(0.0, min(float(self.door.opt(CONF_SNAPSHOT_DELAY) or 0), SNAPSHOT_DELAY_MAX))
+        except (TypeError, ValueError):
+            return 0.0
 
     async def async_info(self, title: str, message: str) -> None:
         """A plain note (no picture, no button) to the door's push and Telegram receivers."""
@@ -442,7 +460,12 @@ class Notifier:
         camera = self.door.camera
         if not camera or "camera" not in self.hass.config.components:
             return None
-        if picture := await self._stream_picture(camera):
+        if delay := self._snapshot_delay():
+            await asyncio.sleep(delay)  # e.g. until the visitor stands in front of the camera
+        source = self.door.opt(CONF_SNAPSHOT_SOURCE) or SNAPSHOT_AUTO
+        if source != SNAPSHOT_STILL and (
+            picture := await self._stream_picture(camera, source == SNAPSHOT_STREAM)
+        ):
             return picture
         try:
             from homeassistant.components.camera import async_get_image  # noqa: PLC0415
@@ -453,10 +476,13 @@ class Notifier:
             return None
         return (image.content, image.content_type) if image.content else None
 
-    async def _stream_picture(self, camera: str) -> Picture:
-        """A camera without its own still address, kept warm: take the picture straight from
-        the running stream – the one the live view shows. Instant, and it works even where
-        Home Assistant's usual way (asking go2rtc) fails for a camera."""
+    async def _stream_picture(self, camera: str, always: bool) -> Picture:
+        """Take the picture straight from the camera's stream – the one the live view shows.
+
+        Automatic: only for a camera without its own still address whose stream is running
+        (kept warm) – instant, and it works even where Home Assistant's usual way (asking
+        go2rtc) fails. always=True ("from the live stream"): also starts the stream if needed.
+        """
         try:
             from homeassistant.components.camera.helper import (  # noqa: PLC0415
                 get_camera_from_entity_id,
@@ -464,9 +490,16 @@ class Notifier:
 
             entity = get_camera_from_entity_id(self.hass, camera)
             stream = entity.stream
-            if not entity.use_stream_for_stills or stream is None or not stream.available:
+            running = stream is not None and stream.available
+            if not always and (not entity.use_stream_for_stills or not running):
                 return None
-            data = await asyncio.wait_for(stream.async_get_image(), SNAPSHOT_TIMEOUT)
+            if stream is None:
+                stream = await entity.async_create_stream()
+                if stream is None:
+                    return None
+            data = await asyncio.wait_for(
+                stream.async_get_image(wait_for_next_keyframe=not running), SNAPSHOT_TIMEOUT
+            )
         except Exception as err:  # noqa: BLE001 – fall back to Home Assistant's usual way
             _LOGGER.debug("Portier: kein Bild aus dem laufenden Stream (%s)", err)
             return None

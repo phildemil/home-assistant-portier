@@ -1,6 +1,7 @@
 """End-to-end tests against a real Home Assistant core."""
 
 from datetime import timedelta
+import time
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
@@ -1013,3 +1014,56 @@ async def test_picture_from_running_stream(hass: HomeAssistant, picture, monkeyp
     token = pixel[0].data["data"]["image"].rsplit("/", 1)[1]
     assert await store[token][0] == (b"FROMSTREAM", "image/jpeg")
     assert picture == []  # Home Assistant's usual (slower) way was not needed
+
+
+def _fake_stream(monkeypatch, has_still: bool = False):
+    import homeassistant.components.camera.helper as helper
+
+    class FakeStream:
+        available = True
+
+        async def async_get_image(self, *args, **kwargs):
+            return b"FROMSTREAM"
+
+    class FakeCamera:
+        use_stream_for_stills = not has_still
+        stream = FakeStream()
+
+    monkeypatch.setattr(helper, "get_camera_from_entity_id", lambda _hass, _eid: FakeCamera())
+
+
+async def _ring_picture(hass, pixel):
+    store = hass.data["portier_snapshots"]
+    image = next(c.data["data"].get("image") for c in pixel if c.data["data"].get("image"))
+    return await store[image.rsplit("/", 1)[1]][0]
+
+
+async def test_picture_source_choice(hass: HomeAssistant, picture, monkeypatch) -> None:
+    """"Standbild der Kamera" skips the stream; "Aus dem Livebild" uses it even with a still address."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    _fake_stream(monkeypatch, has_still=True)
+    entry = await _setup(hass, notify_services=["mobile_app_pixel"], snapshot_source="stream",
+                         notify_cooldown=0, debounce_seconds=0)
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert await _ring_picture(hass, pixel) == (b"FROMSTREAM", "image/jpeg")
+
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "snapshot_source": "still"})
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    pixel.clear()
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert await _ring_picture(hass, pixel) == (b"JPEGDATA", "image/jpeg")
+
+
+async def test_delayed_picture_message_waits_for_it(hass: HomeAssistant, picture) -> None:
+    """Picture set to 1 s after the ring: the message comes with it, once it is taken."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"], snapshot_delay=1)
+    start = time.monotonic()
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert len(pixel) == 1 and time.monotonic() - start >= 1
+    assert pixel[0].data["data"]["image"].startswith("/api/portier/snapshot/")
+    assert picture  # taken before the message went out
