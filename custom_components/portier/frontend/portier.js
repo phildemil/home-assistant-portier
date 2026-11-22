@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.2";
+const VERSION = "1.18.3";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -2519,7 +2519,19 @@ class PortierPanel extends HTMLElement {
     if (pic) {
       const stamp = force ? Date.now() : Math.floor(Date.now() / 10000);
       const src = `${pic}${pic.includes("?") ? "&" : "?"}t=${stamp}`;
-      if (force || img.getAttribute("src") !== src) img.src = src;
+      if (force || img.getAttribute("src") !== src) {
+        img.src = src;
+        // A still that takes this long will fail or come too late (HA waits ~8 s for
+        // cameras it cannot read): take this door's still from Portier from now on.
+        clearTimeout(card.stillSlow);
+        card.stillSlow = setTimeout(() => {
+          if (!card.isConnected || this.live.has(door.entry_id)) return;
+          if (img.getAttribute("src") === src && !(img.complete && img.naturalWidth)) {
+            card.portierStill = true;
+            this.refreshStill(card, door, true);
+          }
+        }, 5000);
+      }
     } else {
       img.removeAttribute("src");
     }
