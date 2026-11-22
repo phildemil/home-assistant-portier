@@ -442,6 +442,8 @@ class Notifier:
         camera = self.door.camera
         if not camera or "camera" not in self.hass.config.components:
             return None
+        if picture := await self._stream_picture(camera):
+            return picture
         try:
             from homeassistant.components.camera import async_get_image  # noqa: PLC0415
 
@@ -450,6 +452,25 @@ class Notifier:
             _LOGGER.info("Portier: kein Kamerabild beim Klingeln (%s)", err)
             return None
         return (image.content, image.content_type) if image.content else None
+
+    async def _stream_picture(self, camera: str) -> Picture:
+        """A camera without its own still address, kept warm: take the picture straight from
+        the running stream – the one the live view shows. Instant, and it works even where
+        Home Assistant's usual way (asking go2rtc) fails for a camera."""
+        try:
+            from homeassistant.components.camera.helper import (  # noqa: PLC0415
+                get_camera_from_entity_id,
+            )
+
+            entity = get_camera_from_entity_id(self.hass, camera)
+            stream = entity.stream
+            if not entity.use_stream_for_stills or stream is None or not stream.available:
+                return None
+            data = await asyncio.wait_for(stream.async_get_image(), SNAPSHOT_TIMEOUT)
+        except Exception as err:  # noqa: BLE001 – fall back to Home Assistant's usual way
+            _LOGGER.debug("Portier: kein Bild aus dem laufenden Stream (%s)", err)
+            return None
+        return (data, "image/jpeg") if data else None
 
     def _start_snapshot(self) -> tuple[str, asyncio.Task[Picture]] | None:
         """Ask the camera for the ring picture now; its address exists right away."""

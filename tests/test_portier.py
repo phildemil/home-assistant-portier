@@ -988,3 +988,28 @@ async def test_expired_push_keeps_ring_picture(hass: HomeAssistant, picture) -> 
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
     await hass.async_block_till_done()
     assert pixel[1].data["data"]["image"] == pixel[0].data["data"]["image"]
+
+
+async def test_picture_from_running_stream(hass: HomeAssistant, picture, monkeypatch) -> None:
+    """No still address, stream kept warm: the picture comes straight from the stream."""
+    import homeassistant.components.camera.helper as helper
+
+    class FakeStream:
+        available = True
+
+        async def async_get_image(self, *args, **kwargs):
+            return b"FROMSTREAM"
+
+    class FakeCamera:
+        use_stream_for_stills = True
+        stream = FakeStream()
+
+    monkeypatch.setattr(helper, "get_camera_from_entity_id", lambda _hass, _eid: FakeCamera())
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"])
+    await _press(hass)
+    await hass.async_block_till_done()
+    store = hass.data["portier_snapshots"]
+    token = pixel[0].data["data"]["image"].rsplit("/", 1)[1]
+    assert await store[token][0] == (b"FROMSTREAM", "image/jpeg")
+    assert picture == []  # Home Assistant's usual (slower) way was not needed

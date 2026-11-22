@@ -75,6 +75,9 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   Telegram bekommt dasselbe Bild (absolute interne URL), ohne Bild sofort Text. „Öffnen nicht mehr
   möglich“ behält das Klingelbild, „Tür geöffnet“ zeigt ein frisches (`/api/camera_proxy/`). Grund:
   telegram_bot lädt URLs mit 5 Versuchen à ~10 s → bis 50 s Verzögerung; jedes Handy fragte extra.
+  Bildquelle: Kamera ohne Standbild-Adresse + laufender (vorgewärmter) Stream → Schlüsselbild direkt aus
+  `camera.stream.async_get_image()` (sofort, umgeht go2rtc, das bei manchen Kameras scheitert); sonst
+  `async_get_image`.
 - `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`,
   `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
 - `config_flow.py` – Einrichtung fragt nur den Namen (Fertig-Dialog verlinkt `/portier?edit=new`),

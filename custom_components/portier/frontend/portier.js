@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.17.0";
+const VERSION = "1.17.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
