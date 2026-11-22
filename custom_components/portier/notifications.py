@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import time
@@ -55,28 +56,41 @@ VIA_TEXT = {
 }
 
 
-# Telegram gets the ring picture from Portier itself: taken once, at most this long,
-# so a slow or broken camera never holds the message up (HA would retry for ~50 s).
+# One picture per ring, for the app and Telegram alike: Portier asks the camera once, at
+# most this long, so a slow or broken camera never holds a message up (HA's Telegram
+# download alone would retry for ~50 s, and every phone would ask the camera again).
 SNAPSHOT_TIMEOUT = 4
-SNAPSHOT_KEEP = 600.0  # seconds a picture stays downloadable
+SNAPSHOT_KEEP = 1800.0  # seconds a picture stays downloadable (phones may fetch late)
 _SNAPSHOTS = f"{DOMAIN}_snapshots"
+
+type Picture = tuple[bytes, str] | None
 
 
 class SnapshotView(HomeAssistantView):
-    """Serves the ring picture once taken, under a random, short-lived address."""
+    """Serves a ring picture under a random, short-lived address.
+
+    The address exists from the moment of the ring; a phone that asks before the picture
+    is ready simply waits for it (at most SNAPSHOT_TIMEOUT).
+    """
 
     url = "/api/portier/snapshot/{token}"
     name = "api:portier:snapshot"
     requires_auth = False  # the long random token is the key; Telegram has no HA login
 
-    def __init__(self, store: dict[str, tuple[bytes, str, float]]) -> None:
+    def __init__(self, store: dict[str, tuple[asyncio.Task[Picture], float]]) -> None:
         self._store = store
 
     async def get(self, request: web.Request, token: str) -> web.Response:
         item = self._store.get(token)
-        if not item or item[2] < time.monotonic():
+        if not item or item[1] < time.monotonic():
             return web.Response(status=404)
-        return web.Response(body=item[0], content_type=item[1])
+        try:
+            picture = await asyncio.wait_for(asyncio.shield(item[0]), SNAPSHOT_TIMEOUT + 2)
+        except Exception:  # noqa: BLE001 – no picture is a plain 404
+            picture = None
+        if not picture:
+            return web.Response(status=404)
+        return web.Response(body=picture[0], content_type=picture[1])
 
 
 @callback
@@ -109,7 +123,8 @@ class Notifier:
         self._tg_live: dict[tuple[int, int, bool, str], CALLBACK_TYPE] = {}
         # Phones whose ring notification still shows the "open" button:
         # (services, time of the ring, cancel of the expiry timer).
-        self._push_live: tuple[list[str], str, CALLBACK_TYPE] | None = None
+        # (services, time of the ring, ring picture path, cancel of the expiry timer)
+        self._push_live: tuple[list[str], str, str | None, CALLBACK_TYPE] | None = None
 
     # ------------------------------------------------------------------ listen
     def async_listen(self) -> list[CALLBACK_TYPE]:
@@ -125,7 +140,7 @@ class Notifier:
             cancel()
         self._tg_live.clear()
         if self._push_live:
-            self._push_live[2]()
+            self._push_live[-1]()
             self._push_live = None
 
     def _new_token(self) -> str:
@@ -175,12 +190,9 @@ class Notifier:
         self._last_sent = now
 
         token = self._new_token() if self._open_allowed else None
-        # Take the picture for Telegram while the push notifications go out.
-        snapshot = (
-            self.hass.async_create_task(self._snapshot())
-            if targets and self.door.camera
-            else None
-        )
+        # The ring picture: taken once, while the notifications already go out.
+        snapshot = self._start_snapshot()
+        picture_path = f"/api/portier/snapshot/{snapshot[0]}" if snapshot else None
         title = f"🔔 {self.door.name}"
         rang = dt_util.now().strftime("%H:%M:%S")
         message = f"Es klingelt · {rang}"
@@ -189,17 +201,19 @@ class Notifier:
         for service in services:
             try:
                 if service.startswith("mobile_app_"):
-                    await self._send_mobile(service, title, message, token)
+                    await self._send_mobile(service, title, message, token, picture_path)
                     phones.append(service)
                 else:
                     await self._call("notify", service, {"title": title, "message": message})
             except (HomeAssistantError, ValueError, TimeoutError) as err:
                 _LOGGER.error("Portier: Benachrichtigung über %s fehlgeschlagen: %s", service, err)
         if token and phones:
-            self._track_push(phones, rang)
+            self._track_push(phones, rang, picture_path)
 
         if targets:
-            photo_url = self._snapshot_url(await snapshot) if snapshot else None
+            photo_url = None
+            if snapshot and await snapshot[1]:
+                photo_url = self._absolute(picture_path)
             await self._send_telegram(targets, f"{title}\n{message}", token, photo_url)
 
     async def async_info(self, title: str, message: str) -> None:
@@ -229,9 +243,13 @@ class Notifier:
         title: str,
         message: str,
         token: str | None,
+        image: str | None,
         quiet: bool = False,
     ) -> None:
-        """Ring notification; quiet=True replaces it (same tag) without sound or vibration."""
+        """Ring notification; quiet=True replaces it (same tag) without sound or vibration.
+
+        image is a path on this Home Assistant; the app downloads it itself.
+        """
         entry_id = self.door.entry.entry_id
         # Tapping the notification opens the live picture with the opener inside it.
         live_url = f"/{PANEL_URL}?show={entry_id}"
@@ -259,9 +277,8 @@ class Notifier:
                 "importance": "high",
                 "push": {"interruption-level": "time-sensitive"},
             }
-        if camera := self.door.camera:
-            # The app downloads this itself with its own login.
-            data["image"] = f"/api/camera_proxy/{camera}"
+        if image:
+            data["image"] = image
         actions: list[dict[str, Any]] = []
         if token:
             actions.append(
@@ -345,32 +362,36 @@ class Notifier:
 
             self._tg_live[key] = async_call_later(self.hass, window, _expired)
 
-    def _track_push(self, phones: list[str], rang: str) -> None:
+    def _track_push(self, phones: list[str], rang: str, picture: str | None) -> None:
         """Remember the phones so their notification can be replaced later."""
         if self._push_live:
-            self._push_live[2]()  # a newer ring replaced the older notification anyway
+            self._push_live[-1]()  # a newer ring replaced the older notification anyway
 
         @callback
         def _expired(_now: Any) -> None:
             if self._push_live is None:
                 return
-            services, rang_at, _cancel = self._push_live
+            services, rang_at, ring_picture, _cancel = self._push_live
             self._push_live = None
+            # Still about that ring: keep its picture.
             self.hass.async_create_task(
                 self._replace_mobile(
                     services,
                     f"🔔 {self.door.name}",
                     f"Es klingelte · {rang_at} · Öffnen nicht mehr möglich",
+                    ring_picture,
                 )
             )
 
         window = float(self.door.opt(CONF_ACTION_WINDOW))
-        self._push_live = (phones, rang, async_call_later(self.hass, window, _expired))
+        self._push_live = (phones, rang, picture, async_call_later(self.hass, window, _expired))
 
-    async def _replace_mobile(self, services: list[str], title: str, message: str) -> None:
+    async def _replace_mobile(
+        self, services: list[str], title: str, message: str, image: str | None
+    ) -> None:
         for service in services:
             try:
-                await self._send_mobile(service, title, message, None, quiet=True)
+                await self._send_mobile(service, title, message, None, image, quiet=True)
             except (HomeAssistantError, ValueError, TimeoutError) as err:
                 _LOGGER.debug("Portier: Push über %s nicht ersetzt: %s", service, err)
 
@@ -388,12 +409,15 @@ class Notifier:
             cancel()
             self.hass.async_create_task(self._edit_telegram(key, note))
         if self._push_live:
-            services, rang, cancel = self._push_live
+            services, rang, _picture, cancel = self._push_live
             self._push_live = None
             cancel()
             message = f"{note.removeprefix('✅ ')}\nEs klingelte · {rang}"
+            # "Door opened" shows how it looks at the door now: a fresh picture.
+            camera = self.door.camera
+            fresh = f"/api/camera_proxy/{camera}" if camera else None
             self.hass.async_create_task(
-                self._replace_mobile(services, f"✅ {self.door.name}", message)
+                self._replace_mobile(services, f"✅ {self.door.name}", message, fresh)
             )
 
     async def _edit_telegram(self, key: tuple[int, int, bool, str], note: str) -> None:
@@ -413,7 +437,7 @@ class Notifier:
         except (HomeAssistantError, ValueError, TimeoutError) as err:
             _LOGGER.debug("Portier: Telegram-Nachricht nicht geändert: %s", err)
 
-    async def _snapshot(self) -> tuple[bytes, str] | None:
+    async def _snapshot(self) -> Picture:
         """One picture from the camera, or None if it does not come quickly."""
         camera = self.door.camera
         if not camera or "camera" not in self.hass.config.components:
@@ -422,26 +446,31 @@ class Notifier:
             from homeassistant.components.camera import async_get_image  # noqa: PLC0415
 
             image = await async_get_image(self.hass, camera, timeout=SNAPSHOT_TIMEOUT)
-        except Exception as err:  # noqa: BLE001 – no picture, then text: never hold Telegram up
-            _LOGGER.info("Portier: kein Kamerabild für Telegram (%s), sende Text", err)
+        except Exception as err:  # noqa: BLE001 – no picture: messages go out without one
+            _LOGGER.info("Portier: kein Kamerabild beim Klingeln (%s)", err)
             return None
         return (image.content, image.content_type) if image.content else None
 
-    def _snapshot_url(self, picture: tuple[bytes, str] | None) -> str | None:
-        """Short-lived, HA-internal address of the ring picture for Telegram to fetch."""
+    def _start_snapshot(self) -> tuple[str, asyncio.Task[Picture]] | None:
+        """Ask the camera for the ring picture now; its address exists right away."""
         store = self.hass.data.get(_SNAPSHOTS)
-        if not picture or store is None:
+        if not self.door.camera or store is None:
             return None
         now = time.monotonic()
-        for key in [k for k, v in store.items() if v[2] < now]:
+        for key in [k for k, v in store.items() if v[1] < now]:
             del store[key]
+        task = self.hass.async_create_task(self._snapshot())
         token = secrets.token_urlsafe(24)
-        store[token] = (picture[0], picture[1], now + SNAPSHOT_KEEP)
+        store[token] = (task, now + SNAPSHOT_KEEP)
+        return token, task
+
+    def _absolute(self, path: str) -> str:
+        """Full HA-internal address (Telegram's download runs inside Home Assistant)."""
         try:
             base = get_url(self.hass, allow_external=False, allow_cloud=False)
         except NoURLAvailableError:
             base = f"http://127.0.0.1:{self.hass.http.server_port}"
-        return f"{base}/api/portier/snapshot/{token}"
+        return f"{base}{path}"
 
     async def _call(self, domain: str, service: str, data: dict[str, Any]) -> None:
         await self.hass.services.async_call(domain, service, data, blocking=True)

@@ -185,7 +185,8 @@ async def test_mobile_push_and_action(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert len(calls) == 1
     data = calls[0].data["data"]
-    assert data["image"] == "/api/camera_proxy/camera.tuer"
+    # The phone gets Portier's ring picture (same one as Telegram), not the camera itself.
+    assert data["image"].startswith("/api/portier/snapshot/")
     # Tapping the notification opens this door's live picture; no extra "Livebild" button.
     assert data["clickAction"] == data["url"] == f"/portier?show={entry.entry_id}"
     assert len(data["actions"]) == 1
@@ -949,3 +950,41 @@ async def test_telegram_text_at_once_without_picture(hass: HomeAssistant, monkey
     await hass.async_block_till_done()
     assert not photos
     assert len(texts) == 1 and texts[0].data["inline_keyboard"]
+
+
+async def test_app_and_telegram_share_one_picture(
+    hass: HomeAssistant, picture, hass_client_no_auth
+) -> None:
+    """One ring = one question to the camera; the app and Telegram show the same picture."""
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    photos = async_mock_service(hass, "telegram_bot", "send_photo")
+    async_mock_service(hass, "telegram_bot", "send_message")
+    await _setup(hass, notify_services=["mobile_app_pixel"], telegram_targets="12345")
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert len(picture) == 1
+    app_path = pixel[0].data["data"]["image"]
+    assert photos[0].data["url"].endswith(app_path)
+    client = await hass_client_no_auth()
+    resp = await client.get(app_path)
+    assert resp.status == 200 and await resp.read() == b"JPEGDATA"
+
+
+async def test_opened_push_shows_fresh_picture(hass: HomeAssistant, picture) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    entry = await _setup(hass, notify_services=["mobile_app_pixel"], action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_open(via="app")
+    await hass.async_block_till_done()
+    assert pixel[1].data["data"]["image"] == "/api/camera_proxy/camera.tuer"
+
+
+async def test_expired_push_keeps_ring_picture(hass: HomeAssistant, picture) -> None:
+    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"], action_window_seconds=120)
+    await _press(hass)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
+    await hass.async_block_till_done()
+    assert pixel[1].data["data"]["image"] == pixel[0].data["data"]["image"]

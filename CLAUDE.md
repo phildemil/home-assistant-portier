@@ -69,9 +69,12 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   Klingeln, Öffnen mit Impuls. Ausschalt-Pflicht wird **vor** dem Einschalten gespeichert
   (`Store`), nach Neustart wird abgeschaltet; Fehlschläge werden wiederholt + Notification.
 - `notifications.py` – Push/Telegram, Einmal-Token, Telegram-Chat-Prüfung.
-  Telegram-Foto: Portier holt beim Klingeln **ein** Bild (`camera.async_get_image`, max. 4 s, parallel
-  zum Push) und liefert es selbst unter `/api/portier/snapshot/<token>` (10 min, ohne Login). Kein Bild →
-  sofort Text. Grund: telegram_bot lädt URLs mit 5 Versuchen à ~10 s → bis 50 s Verzögerung.
+  **Ein Klingelbild für alle:** Portier fragt die Kamera beim Klingeln **einmal** (`camera.async_get_image`,
+  max. 4 s) und liefert das Bild selbst unter `/api/portier/snapshot/<token>` (30 min, ohne Login). Die
+  Adresse gibt es sofort: Push geht ohne Warten raus, das Handy wartet beim Abholen notfalls aufs Bild.
+  Telegram bekommt dasselbe Bild (absolute interne URL), ohne Bild sofort Text. „Öffnen nicht mehr
+  möglich“ behält das Klingelbild, „Tür geöffnet“ zeigt ein frisches (`/api/camera_proxy/`). Grund:
+  telegram_bot lädt URLs mit 5 Versuchen à ~10 s → bis 50 s Verzögerung; jedes Handy fragte extra.
 - `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`,
   `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
 - `config_flow.py` – Einrichtung fragt nur den Namen (Fertig-Dialog verlinkt `/portier?edit=new`),
