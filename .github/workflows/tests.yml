@@ -5,21 +5,15 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  # Every Monday: test against the current and the newest/beta Home Assistant, so a
-  # change in Home Assistant shows up here (GitHub sends an e-mail) before users update.
+  # Every Monday, also without changes here: the HA test package follows new Home
+  # Assistant releases, so a break caused by Home Assistant shows up (GitHub e-mails).
   schedule:
     - cron: "17 5 * * 1"
 
 jobs:
   pytest:
-    name: Tests gegen Home Assistant (${{ matrix.ha }})
+    name: Tests gegen echtes Home Assistant
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # "aktuell": the version the HA test package is made for (lags about a month).
-        # "neueste": the newest Home Assistant on top of it – the beta while there is one.
-        ha: [aktuell, neueste]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -29,7 +23,6 @@ jobs:
       - name: Testumgebung installieren
         run: |
           pip install pytest-homeassistant-custom-component
-          if [ "${{ matrix.ha }}" = neueste ]; then pip install -U --pre homeassistant; fi
           python -c "import homeassistant.const as c; print('Home Assistant', c.__version__)"
           # Portier needs the HA frontend (panel, static files) and the camera component
           # (stream preload); install exactly what this Home Assistant release asks for.
