@@ -39,7 +39,10 @@ async def async_set_preload(hass: HomeAssistant, entity_id: str | None, on: bool
         if camera is None:
             return  # not there yet: Home Assistant preloads it itself once it has started
         if provider := camera.webrtc_provider:
-            await provider.async_on_camera_prefs_update(camera)
+            try:
+                await provider.async_on_camera_prefs_update(camera)
+            except Exception as err:  # noqa: BLE001 – e.g. go2rtc cannot read this camera
+                _LOGGER.debug("Portier: WebRTC-Anbieter für %s: %s", entity_id, err)
         if on and camera.supported_features & CameraEntityFeature.STREAM:
             if stream := await camera.async_create_stream():
                 stream.add_provider("hls")
