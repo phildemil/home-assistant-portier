@@ -69,6 +69,9 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   Klingeln, Öffnen mit Impuls. Ausschalt-Pflicht wird **vor** dem Einschalten gespeichert
   (`Store`), nach Neustart wird abgeschaltet; Fehlschläge werden wiederholt + Notification.
 - `notifications.py` – Push/Telegram, Einmal-Token, Telegram-Chat-Prüfung.
+  Telegram-Foto: Portier holt beim Klingeln **ein** Bild (`camera.async_get_image`, max. 4 s, parallel
+  zum Push) und liefert es selbst unter `/api/portier/snapshot/<token>` (10 min, ohne Login). Kein Bild →
+  sofort Text. Grund: telegram_bot lädt URLs mit 5 Versuchen à ~10 s → bis 50 s Verzögerung.
 - `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`,
   `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
 - `config_flow.py` – Einrichtung fragt nur den Namen (Fertig-Dialog verlinkt `/portier?edit=new`),

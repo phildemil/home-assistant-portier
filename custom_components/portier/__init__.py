@@ -25,6 +25,7 @@ from .frontend import async_door_added, async_register_frontend, async_remove_lo
 from .look import async_load_look, async_remove_look
 from .preload import async_release_preload
 from .manager import PortierDoor, all_doors, door_for
+from .notifications import async_register_snapshots
 from .websocket import async_register_websocket
 
 type PortierConfigEntry = ConfigEntry[PortierDoor]
@@ -52,6 +53,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register services and the websocket API once."""
     await async_load_look(hass)
     async_register_websocket(hass)
+    async_register_snapshots(hass)
     # The panel stays available as long as Portier is loaded, even with no door left,
     # so doors can be added right from it.
     await async_register_frontend(hass)

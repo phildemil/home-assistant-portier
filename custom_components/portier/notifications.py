@@ -7,6 +7,9 @@ import secrets
 import time
 from typing import TYPE_CHECKING, Any
 
+from aiohttp import web
+
+from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import (
     CALLBACK_TYPE,
     Context,
@@ -26,6 +29,7 @@ from .const import (
     CONF_NOTIFY_COOLDOWN,
     CONF_NOTIFY_OPEN,
     CONF_TELEGRAM_TARGETS,
+    DOMAIN,
     NOTIFY_ALL_MOBILE,
     PANEL_URL,
 )
@@ -49,6 +53,37 @@ VIA_TEXT = {
     "push": "über die App",  # the opener history keeps the exact way
     "nfc": "per NFC an der Tür",
 }
+
+
+# Telegram gets the ring picture from Portier itself: taken once, at most this long,
+# so a slow or broken camera never holds the message up (HA would retry for ~50 s).
+SNAPSHOT_TIMEOUT = 4
+SNAPSHOT_KEEP = 600.0  # seconds a picture stays downloadable
+_SNAPSHOTS = f"{DOMAIN}_snapshots"
+
+
+class SnapshotView(HomeAssistantView):
+    """Serves the ring picture once taken, under a random, short-lived address."""
+
+    url = "/api/portier/snapshot/{token}"
+    name = "api:portier:snapshot"
+    requires_auth = False  # the long random token is the key; Telegram has no HA login
+
+    def __init__(self, store: dict[str, tuple[bytes, str, float]]) -> None:
+        self._store = store
+
+    async def get(self, request: web.Request, token: str) -> web.Response:
+        item = self._store.get(token)
+        if not item or item[2] < time.monotonic():
+            return web.Response(status=404)
+        return web.Response(body=item[0], content_type=item[1])
+
+
+@callback
+def async_register_snapshots(hass: HomeAssistant) -> None:
+    if _SNAPSHOTS not in hass.data:
+        hass.data[_SNAPSHOTS] = {}
+        hass.http.register_view(SnapshotView(hass.data[_SNAPSHOTS]))
 
 
 def parse_telegram_targets(raw: str | None) -> list[int]:
@@ -140,6 +175,12 @@ class Notifier:
         self._last_sent = now
 
         token = self._new_token() if self._open_allowed else None
+        # Take the picture for Telegram while the push notifications go out.
+        snapshot = (
+            self.hass.async_create_task(self._snapshot())
+            if targets and self.door.camera
+            else None
+        )
         title = f"🔔 {self.door.name}"
         rang = dt_util.now().strftime("%H:%M:%S")
         message = f"Es klingelt · {rang}"
@@ -158,7 +199,8 @@ class Notifier:
             self._track_push(phones, rang)
 
         if targets:
-            await self._send_telegram(targets, f"{title}\n{message}", token)
+            photo_url = self._snapshot_url(await snapshot) if snapshot else None
+            await self._send_telegram(targets, f"{title}\n{message}", token, photo_url)
 
     async def async_info(self, title: str, message: str) -> None:
         """A plain note (no picture, no button) to the door's push and Telegram receivers."""
@@ -234,7 +276,9 @@ class Notifier:
             data["actions"] = actions
         await self._call("notify", service, {"title": title, "message": message, "data": data})
 
-    async def _send_telegram(self, targets: list[int], caption: str, token: str | None) -> None:
+    async def _send_telegram(
+        self, targets: list[int], caption: str, token: str | None, photo_url: str | None
+    ) -> None:
         if not self.hass.services.has_service("telegram_bot", "send_message"):
             _LOGGER.warning("Portier: Telegram-Ziele eingetragen, aber kein Telegram-Bot in HA")
             return
@@ -243,7 +287,6 @@ class Notifier:
             if token
             else {}
         )
-        photo_url = self._camera_url()
         if photo_url:
             try:
                 response = await self._call_tg(
@@ -370,18 +413,35 @@ class Notifier:
         except (HomeAssistantError, ValueError, TimeoutError) as err:
             _LOGGER.debug("Portier: Telegram-Nachricht nicht geändert: %s", err)
 
-    def _camera_url(self) -> str | None:
-        """Short-lived, HA-internal snapshot URL for Telegram to download."""
+    async def _snapshot(self) -> tuple[bytes, str] | None:
+        """One picture from the camera, or None if it does not come quickly."""
         camera = self.door.camera
-        state = self.hass.states.get(camera) if camera else None
-        token = state.attributes.get("access_token") if state else None
-        if not token:
+        if not camera or "camera" not in self.hass.config.components:
             return None
+        try:
+            from homeassistant.components.camera import async_get_image  # noqa: PLC0415
+
+            image = await async_get_image(self.hass, camera, timeout=SNAPSHOT_TIMEOUT)
+        except Exception as err:  # noqa: BLE001 – no picture, then text: never hold Telegram up
+            _LOGGER.info("Portier: kein Kamerabild für Telegram (%s), sende Text", err)
+            return None
+        return (image.content, image.content_type) if image.content else None
+
+    def _snapshot_url(self, picture: tuple[bytes, str] | None) -> str | None:
+        """Short-lived, HA-internal address of the ring picture for Telegram to fetch."""
+        store = self.hass.data.get(_SNAPSHOTS)
+        if not picture or store is None:
+            return None
+        now = time.monotonic()
+        for key in [k for k, v in store.items() if v[2] < now]:
+            del store[key]
+        token = secrets.token_urlsafe(24)
+        store[token] = (picture[0], picture[1], now + SNAPSHOT_KEEP)
         try:
             base = get_url(self.hass, allow_external=False, allow_cloud=False)
         except NoURLAvailableError:
             base = f"http://127.0.0.1:{self.hass.http.server_port}"
-        return f"{base}/api/camera_proxy/{camera}?token={token}"
+        return f"{base}/api/portier/snapshot/{token}"
 
     async def _call(self, domain: str, service: str, data: dict[str, Any]) -> None:
         await self.hass.services.async_call(domain, service, data, blocking=True)

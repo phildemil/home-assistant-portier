@@ -41,6 +41,22 @@ def config_yaml(hass: HomeAssistant, tmp_path, monkeypatch):
     return cfg
 
 
+@pytest.fixture
+def picture(hass: HomeAssistant, monkeypatch):
+    """The door camera delivers a picture (counts how often it was asked)."""
+    import homeassistant.components.camera as camera
+
+    calls = []
+
+    async def fake_get_image(_hass, entity_id, timeout=10, width=None, height=None):
+        calls.append((entity_id, timeout))
+        return camera.Image("image/jpeg", b"JPEGDATA")
+
+    monkeypatch.setattr(camera, "async_get_image", fake_get_image)
+    hass.config.components.add("camera")
+    return calls
+
+
 async def _setup(hass: HomeAssistant, **options):
     await async_setup_component(hass, "input_boolean", {"input_boolean": {"oeffner": {}}})
     hass.states.async_set("binary_sensor.klingel", "off")
@@ -202,7 +218,7 @@ async def test_push_cooldown(hass: HomeAssistant) -> None:
     assert len(calls) == 1
 
 
-async def test_telegram_photo_and_callback(hass: HomeAssistant) -> None:
+async def test_telegram_photo_and_callback(hass: HomeAssistant, picture, hass_client_no_auth) -> None:
     photos = async_mock_service(hass, "telegram_bot", "send_photo")
     async_mock_service(hass, "telegram_bot", "send_message")
     answers = async_mock_service(hass, "telegram_bot", "answer_callback_query")
@@ -212,7 +228,13 @@ async def test_telegram_photo_and_callback(hass: HomeAssistant) -> None:
     assert len(photos) == 1
     sent = photos[0].data
     assert sent["chat_id"] == [12345, -99]
-    assert "/api/camera_proxy/camera.tuer?token=abc" in sent["url"]
+    # The picture is taken once (with a short limit) and served by Portier itself.
+    assert picture == [("camera.tuer", 4)]
+    assert "/api/portier/snapshot/" in sent["url"]
+    client = await hass_client_no_auth()
+    resp = await client.get(sent["url"].split("8123", 1)[-1] if "8123" in sent["url"] else "/" + sent["url"].split("/", 3)[3])
+    assert resp.status == 200 and await resp.read() == b"JPEGDATA"
+    assert (await client.get("/api/portier/snapshot/wrong")).status == 404
     label, command = sent["inline_keyboard"][0][0]
     assert command.startswith("/portier_open ")
 
@@ -494,7 +516,7 @@ async def test_talk_option(hass: HomeAssistant) -> None:
     assert entry2.runtime_data.snapshot(True)["talk"] is True
 
 
-async def _telegram_ring(hass: HomeAssistant):
+async def _telegram_ring(hass: HomeAssistant, picture):
     from homeassistant.core import SupportsResponse
 
     async_mock_service(
@@ -512,8 +534,8 @@ async def _telegram_ring(hass: HomeAssistant):
     return entry, edits
 
 
-async def test_telegram_shows_opened(hass: HomeAssistant) -> None:
-    entry, edits = await _telegram_ring(hass)
+async def test_telegram_shows_opened(hass: HomeAssistant, picture) -> None:
+    entry, edits = await _telegram_ring(hass, picture)
     await entry.runtime_data.async_open(via="app")
     await hass.async_block_till_done()
     assert len(edits) == 1
@@ -527,8 +549,8 @@ async def test_telegram_shows_opened(hass: HomeAssistant) -> None:
     assert len(edits) == 1
 
 
-async def test_telegram_button_expires(hass: HomeAssistant) -> None:
-    _entry, edits = await _telegram_ring(hass)
+async def test_telegram_button_expires(hass: HomeAssistant, picture) -> None:
+    _entry, edits = await _telegram_ring(hass, picture)
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=125))
     await hass.async_block_till_done()
     assert len(edits) == 1
@@ -908,3 +930,22 @@ async def test_preload_without_camera_integration(hass: HomeAssistant) -> None:
     """No camera component loaded: setting up a door still works."""
     entry = await _setup(hass)
     assert entry.state.name == "LOADED"
+
+
+async def test_telegram_text_at_once_without_picture(hass: HomeAssistant, monkeypatch) -> None:
+    """A camera that delivers no picture: Telegram gets the text right away (with button)."""
+    import homeassistant.components.camera as camera
+    from homeassistant.exceptions import HomeAssistantError
+
+    async def broken(*_args, **_kw):
+        raise HomeAssistantError("Unable to get image")
+
+    monkeypatch.setattr(camera, "async_get_image", broken)
+    hass.config.components.add("camera")
+    photos = async_mock_service(hass, "telegram_bot", "send_photo")
+    texts = async_mock_service(hass, "telegram_bot", "send_message")
+    await _setup(hass, telegram_targets="12345")
+    await _press(hass)
+    await hass.async_block_till_done()
+    assert not photos
+    assert len(texts) == 1 and texts[0].data["inline_keyboard"]
