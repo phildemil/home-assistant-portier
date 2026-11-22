@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.15.1";
+const VERSION = "1.15.2";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -270,6 +270,16 @@ class CameraView {
     this.el.append(this.still);
     this.media = null;
     this.pending = new Set(); // videos started but not shown yet
+    this.gen = 0;
+    // A tab in the background lets a live video stall; coming back starts it afresh.
+    this.onVisible = () => {
+      if (document.visibilityState === "hidden") this.hiddenAt = Date.now();
+      else if (this.hiddenAt && !this.closed) {
+        this.hiddenAt = 0;
+        this.restart();
+      }
+    };
+    document.addEventListener("visibilitychange", this.onVisible);
     this.pc = null;
     this.unsub = null;
     this.closed = false;
@@ -286,6 +296,7 @@ class CameraView {
   }
 
   async start() {
+    const gen = ++this.gen; // a restart makes everything still running from before stale
     const hass = this.hass;
     const state = hass?.states?.[this.entityId];
     if (this.talk) {
@@ -309,7 +320,7 @@ class CameraView {
     } catch {
       /* old HA: just try MJPEG */
     }
-    if (this.closed) return;
+    if (this.closed || gen !== this.gen) return;
     // A ring must show a picture at once: WebRTC and HLS start together, the first one
     // with real frames is shown. WebRTC (almost no delay, needed for talking) takes over
     // if it arrives later; the loser is closed.
@@ -317,10 +328,10 @@ class CameraView {
     if (types.includes("web_rtc") && window.RTCPeerConnection) {
       tries.push(
         this.webrtc(hass).then(
-          (v) => this.offer(v, "webrtc"),
+          (v) => this.offer(v, "webrtc", gen),
           (err) => {
             console.info("Portier: WebRTC nicht möglich", err?.message || err);
-            this.stopWebrtc();
+            if (gen === this.gen) this.stopWebrtc();
           },
         ),
       );
@@ -328,21 +339,21 @@ class CameraView {
     if (types.includes("hls") && document.createElement("video").canPlayType("application/vnd.apple.mpegurl")) {
       tries.push(
         this.hls(hass).then(
-          (v) => this.offer(v, "hls"),
+          (v) => this.offer(v, "hls", gen),
           (err) => console.info("Portier: HLS nicht möglich", err?.message || err),
         ),
       );
     }
     await Promise.all(tries);
-    if (this.closed) return;
+    if (this.closed || gen !== this.gen) return;
     // Talking needs WebRTC; the other ways only receive.
     if (this.talk && this.mode !== "webrtc") this.setTalk("unsupported");
     if (!this.mode) await this.mjpeg(hass);
   }
 
   /** A way delivered frames: show it, unless a better one is already on screen. */
-  offer(video, mode) {
-    if (this.closed || this.mode === "webrtc") return this.drop(video);
+  offer(video, mode, gen) {
+    if (this.closed || gen !== this.gen || this.mode === "webrtc") return this.drop(video);
     video.classList.remove("cam-pending");
     this.swap(video, mode);
     this.el.classList.add("live");
@@ -571,8 +582,19 @@ class CameraView {
     this.el.append(node);
   }
 
+  /** Start over; the last picture stays on screen until the new one plays. */
+  restart() {
+    this.talkStop();
+    this.stopWebrtc();
+    for (const v of this.pending) this.drop(v);
+    this.pending.clear();
+    this.mode = "";
+    this.start();
+  }
+
   destroy() {
     this.closed = true;
+    document.removeEventListener("visibilitychange", this.onVisible);
     this.stopWebrtc();
     for (const v of this.pending) this.drop(v);
     this.pending.clear();
@@ -1880,6 +1902,10 @@ class PortierEditor extends HTMLElement {
 
 /* -------------------------------------------------------------------- panel */
 
+// Live views open on the Türklingel page; HA builds a new panel when you come back from
+// another page, which then starts them again by itself.
+const panelLive = new Set();
+
 class PortierPanel extends HTMLElement {
   constructor() {
     super();
@@ -2134,6 +2160,7 @@ class PortierPanel extends HTMLElement {
     ctrl.listeners.delete(this.onMsg);
     document.removeEventListener("visibilitychange", this.onVisible);
     clearInterval(this.ticker);
+    // Leaving the page ends the stream; panelLive remembers it for the way back.
     for (const v of this.live.values()) v.destroy();
     this.live.clear();
     this.cards.clear();
@@ -2172,6 +2199,7 @@ class PortierPanel extends HTMLElement {
           this.cards.get(id)?.remove();
           this.cards.delete(id);
           this.live.get(id)?.destroy();
+          panelLive.delete(id);
           this.live.delete(id);
         }, 4000),
       );
@@ -2184,13 +2212,17 @@ class PortierPanel extends HTMLElement {
         this.removing.delete(door.entry_id);
       }
       let card = this.cards.get(door.entry_id);
-      if (!card) {
+      const isNew = !card;
+      if (isNew) {
         card = this.buildCard(door);
         this.cards.set(door.entry_id, card);
       }
       // Move only cards that are out of place, so a running live view is not interrupted.
       if (box.children[index] !== card) box.insertBefore(card, box.children[index] || null);
       this.fill(card, door);
+      if (isNew && panelLive.has(door.entry_id) && door.camera && !this.live.has(door.entry_id)) {
+        this.toggleLive(door.entry_id, card);
+      }
     });
     this.renderSoundState();
     this.applyPending();
@@ -2269,6 +2301,7 @@ class PortierPanel extends HTMLElement {
       el.talk.reset();
       existing.destroy();
       this.live.delete(entryId);
+      panelLive.delete(entryId);
       btn.classList.remove("on");
       btn.textContent = "Live ansehen";
       return;
@@ -2282,6 +2315,7 @@ class PortierPanel extends HTMLElement {
     win.insertBefore(view.el, win.querySelector(".plate-head"));
     view.start();
     this.live.set(entryId, view);
+    panelLive.add(entryId);
     btn.classList.add("on");
     btn.textContent = "Live beenden";
   }
