@@ -77,7 +77,8 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   `loader_missing` (ohne Knopf). Letzte Tür gelöscht → Zeile + Lader wieder entfernt.
 - `frontend/portier.js` – ein Modul: Controller (Abo, Wiederanmeldung bei `ready` und
   `component_loaded`, Selbst-Reload bei neuer Version), Overlay, Kamera (Standbild sofort, dann
-  WebRTC über `camera/webrtc/offer`, sonst HLS, sonst MJPEG), Editor, Panel.
+  WebRTC über `camera/webrtc/offer` und HLS **gleichzeitig**, das erste mit echten Bildern
+  gewinnt, WebRTC übernimmt auch später noch; sonst MJPEG), Editor, Panel.
 
 ## Warum der Lader in configuration.yaml nötig ist
 HA liefert Seiten aus, bevor Integrationen geladen sind. `add_extra_js_url` erreicht Seiten,

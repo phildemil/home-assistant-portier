@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.14.1";
+const VERSION = "1.14.2";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000;
@@ -269,6 +269,7 @@ class CameraView {
     this.still.alt = "";
     this.el.append(this.still);
     this.media = null;
+    this.pending = new Set(); // videos started but not shown yet
     this.pc = null;
     this.unsub = null;
     this.closed = false;
@@ -309,30 +310,88 @@ class CameraView {
       /* old HA: just try MJPEG */
     }
     if (this.closed) return;
+    // A ring must show a picture at once: WebRTC and HLS start together, the first one
+    // with real frames is shown. WebRTC (almost no delay, needed for talking) takes over
+    // if it arrives later; the loser is closed.
+    const tries = [];
     if (types.includes("web_rtc") && window.RTCPeerConnection) {
-      try {
-        await this.webrtc(hass);
-        return;
-      } catch (err) {
-        console.info("Portier: WebRTC nicht möglich, nehme Rückfall", err?.message || err);
-        this.stopWebrtc();
-      }
+      tries.push(
+        this.webrtc(hass).then(
+          (v) => this.offer(v, "webrtc"),
+          (err) => {
+            console.info("Portier: WebRTC nicht möglich", err?.message || err);
+            this.stopWebrtc();
+          },
+        ),
+      );
     }
+    if (types.includes("hls") && document.createElement("video").canPlayType("application/vnd.apple.mpegurl")) {
+      tries.push(
+        this.hls(hass).then(
+          (v) => this.offer(v, "hls"),
+          (err) => console.info("Portier: HLS nicht möglich", err?.message || err),
+        ),
+      );
+    }
+    await Promise.all(tries);
     if (this.closed) return;
-    // Talking needs WebRTC; the fallbacks below only receive.
-    if (this.talk) this.setTalk("unsupported");
-    if (types.includes("hls")) {
-      const probe = document.createElement("video");
-      if (probe.canPlayType("application/vnd.apple.mpegurl")) {
-        try {
-          const { url } = await hass.callWS({ type: "camera/stream", entity_id: this.entityId, format: "hls" });
-          return this.showVideo((v) => (v.src = url), "hls");
-        } catch {
-          /* fall through */
-        }
-      }
-    }
-    await this.mjpeg(hass);
+    // Talking needs WebRTC; the other ways only receive.
+    if (this.talk && this.mode !== "webrtc") this.setTalk("unsupported");
+    if (!this.mode) await this.mjpeg(hass);
+  }
+
+  /** A way delivered frames: show it, unless a better one is already on screen. */
+  offer(video, mode) {
+    if (this.closed || this.mode === "webrtc") return this.drop(video);
+    video.classList.remove("cam-pending");
+    this.swap(video, mode);
+    this.el.classList.add("live");
+  }
+
+  /** Throw away a video element that is not (or no longer) shown. */
+  drop(video) {
+    if (!video) return;
+    video.srcObject?.getTracks?.().forEach((t) => t.stop());
+    video.srcObject = null;
+    video.removeAttribute("src");
+    video.load?.();
+    video.remove();
+  }
+
+  /**
+   * Start a hidden video and resolve once it really plays – a stream that never
+   * delivers frames must not leave a black picture.
+   */
+  playing(attach, ms) {
+    return new Promise((resolve, reject) => {
+      const v = document.createElement("video");
+      v.className = "cam-media cam-pending";
+      v.muted = true;
+      v.autoplay = true;
+      v.playsInline = true;
+      v.setAttribute("playsinline", "");
+      const done = (err) => {
+        clearTimeout(timer);
+        if (err) {
+          this.drop(v);
+          reject(err);
+        } else resolve(v);
+      };
+      const timer = setTimeout(() => done(new Error("kein Bild")), ms);
+      v.addEventListener("playing", () => done(), { once: true });
+      v.addEventListener("error", () => done(new Error("Videofehler")), { once: true });
+      attach(v);
+      this.el.append(v);
+      v.play?.().catch(() => {});
+      this.pending.add(v);
+      v.addEventListener("emptied", () => this.pending.delete(v), { once: true });
+    });
+  }
+
+  async hls(hass) {
+    const { url } = await hass.callWS({ type: "camera/stream", entity_id: this.entityId, format: "hls" });
+    if (this.closed) throw new Error("beendet");
+    return this.playing((v) => (v.src = url), 20000);
   }
 
   webrtc(hass) {
@@ -361,9 +420,15 @@ class CameraView {
         pc.ontrack = (ev) => {
           stream.addTrack(ev.track);
           if (ev.track.kind === "video") {
-            this.showVideo((v) => (v.srcObject = stream), "webrtc");
-            clearTimeout(timer);
-            resolve();
+            // A track alone is no picture yet: wait for real frames (inside the timeout).
+            this.playing((v) => (v.srcObject = stream), 12000).then((v) => {
+              clearTimeout(timer);
+              if (this.pc === pc) resolve(v);
+              else {
+                this.drop(v);
+                reject(new Error("beendet"));
+              }
+            }, fail);
           }
         };
         pc.onconnectionstatechange = () => {
@@ -459,19 +524,6 @@ class CameraView {
     this.pc = null;
   }
 
-  showVideo(attach, mode) {
-    if (this.closed) return;
-    const v = document.createElement("video");
-    v.muted = true;
-    v.autoplay = true;
-    v.playsInline = true;
-    v.setAttribute("playsinline", "");
-    attach(v);
-    v.addEventListener("playing", () => this.el.classList.add("live"), { once: true });
-    v.play?.().catch(() => {});
-    this.swap(v, mode);
-  }
-
   async mjpeg(hass) {
     try {
       const { path } = await hass.callWS({ type: "auth/sign_path", path: `/api/camera_proxy_stream/${this.entityId}` });
@@ -494,8 +546,15 @@ class CameraView {
   }
 
   swap(node, mode) {
-    if (this.media?.tagName === "IMG") this.media.src = "";
-    this.media?.remove();
+    const old = this.media;
+    if (old?.tagName === "IMG") old.src = "";
+    if (old?.tagName === "VIDEO") {
+      // Keep the sound setting when WebRTC takes over from HLS.
+      if (node.tagName === "VIDEO") node.muted = old.muted;
+      this.drop(old);
+    }
+    old?.remove();
+    this.pending.delete(node);
     this.media = node;
     node.classList.add("cam-media");
     this.mode = mode;
@@ -505,13 +564,11 @@ class CameraView {
   destroy() {
     this.closed = true;
     this.stopWebrtc();
+    for (const v of this.pending) this.drop(v);
+    this.pending.clear();
     if (this.media) {
       if (this.media.tagName === "IMG") this.media.src = "";
-      if (this.media.tagName === "VIDEO") {
-        this.media.srcObject?.getTracks?.().forEach((t) => t.stop());
-        this.media.removeAttribute("src");
-        this.media.load?.();
-      }
+      if (this.media.tagName === "VIDEO") this.drop(this.media);
       this.media.remove();
     }
     this.still.src = "";
@@ -552,6 +609,7 @@ button:focus-visible{outline:2px solid var(--pt-brass-hi);outline-offset:3px}
 .cam-still,.cam-media{object-fit:cover;display:block;background:transparent}
 .cam-still[src=""],.cam-still:not([src]){display:none}
 .cam.live .cam-still{visibility:hidden}
+.cam-media.cam-pending{opacity:0;pointer-events:none}
 .cam-empty{display:grid;place-items:center;color:var(--pt-muted);font-size:14px}
 .still{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .flash{position:absolute;left:12px;bottom:14px;padding:6px 12px;border-radius:999px;background:#24282ccc;
