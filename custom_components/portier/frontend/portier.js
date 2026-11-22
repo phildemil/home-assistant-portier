@@ -1393,7 +1393,13 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .editor .sub-block{display:grid;gap:14px;padding:4px 0 0 14px;border-left:2px solid var(--pt-edge)}
 .editor .sub-block[hidden]{display:none}
 .editor summary{cursor:pointer;list-style:revert}
+.editor .preload{margin-top:-6px}
+.editor details.why{border-top:0;padding:0}
+.editor details.why summary{font-size:12px;font-weight:400;color:var(--pt-muted);margin:2px 0 0 28px}
+.editor details.why[open] summary{margin-bottom:4px}
+.editor details.why small{display:block;margin-left:28px}
 .f{display:grid;gap:6px}
+.f[hidden]{display:none}
 .f>span{font-size:14px}
 .f small{font-size:12px;color:var(--pt-muted);line-height:1.4;max-width:62ch}
 .f small.err{color:var(--pt-alert)}
@@ -1604,6 +1610,10 @@ class PortierEditor extends HTMLElement {
           ${this.entityField("trigger_entity", "Klingeltaster", DOMAINS.trigger, v.trigger_entity,
             "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.")}
           ${this.entityField("camera_entity", "Kamera", DOMAINS.camera, v.camera_entity)}
+          <div class="f preload" data-f="camera_preload" ${v.camera_entity ? "" : "hidden"}>
+            <label class="chk"><input type="checkbox" name="camera_preload" ${v.camera_preload ? "checked" : ""}>Livebild vorwärmen – sofort da beim Klingeln</label>
+            <details class="why"><summary>Was bringt das?</summary><small>Home Assistant hält den Kamerastream ständig offen („Stream vorladen“). Dann ist das Livebild beim Klingeln in unter einer Sekunde da statt erst nach einigen Sekunden. Kostet etwas Rechenleistung und Netz. Bei reinen MJPEG-Kameras nicht nötig – die sind ohnehin sofort da.</small></details>
+          </div>
           ${this.entityField("opener_entity", "Türöffner", DOMAINS.opener, v.opener_entity,
             "Relais, Schalter oder Helfer bekommen einen Impuls. Schloss wird geöffnet, Taste gedrückt, Skript ausgeführt.")}
           ${this.entityField("contact_entity", "Türkontakt", DOMAINS.contact, v.contact_entity, "Zeigt an, ob die Tür offen ist.")}
@@ -1639,7 +1649,6 @@ class PortierEditor extends HTMLElement {
             ${this.num("live_seconds", "Livebild offen lassen", v.live_seconds, "s", 5, 3600)}
             ${this.num("after_open_seconds", "Nach dem Öffnen noch", v.after_open_seconds, "s", 1, 3600)}
           </div>
-          ${this.check("camera_preload", "Livebild vorwärmen", v.camera_preload, "Home Assistant hält den Kamerastream ständig offen („Stream vorladen“), damit das Livebild beim Klingeln sofort da ist statt erst nach einigen Sekunden. Kostet etwas Rechenleistung und Netz.")}
           ${this.check("talk", "Gegensprechen", v.talk, "Lautsprecher- und Sprechen-Knopf im Livebild. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https – sonst steht am Knopf, was fehlt.")}
         </fieldset>
         <details><summary>Feineinstellungen</summary><div>
@@ -1684,6 +1693,11 @@ class PortierEditor extends HTMLElement {
         const st = this.hass.states[id];
         out.textContent = !id ? "" : st ? `✓ ${st.attributes.friendly_name || id}` : "Nicht gefunden";
         out.classList.toggle("missing", !!id && !st);
+        // "Keep the live picture warm" only makes sense with a camera.
+        if (inp.name === "camera_entity") {
+          const pre = this.querySelector("[data-f=camera_preload]");
+          if (pre) pre.hidden = !id;
+        }
       };
       const field = inp.closest(".f");
       const dd = field.querySelector(".dd");
