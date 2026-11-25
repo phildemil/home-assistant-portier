@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.4";
+const VERSION = "1.18.5";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -107,6 +107,12 @@ function applyLook(el, look) {
     if (vars) el.style.setProperty(name, vars[name]);
     else el.style.removeProperty(name);
   }
+}
+
+/** The Home Assistant app exposes a bridge to its web view; a plain browser does not. */
+function isHaApp() {
+  const bridge = window.externalApp || window.externalAppV2 || window.webkit?.messageHandlers?.externalBus;
+  return !!(bridge || rootHass()?.auth?.external);
 }
 
 /* -------------------------------------------------------------------- sound */
@@ -1105,10 +1111,24 @@ class PortierController {
   async ring(entryId, msg) {
     const door = this.doors.get(entryId);
     if (!door) return;
-    // Only rings that happen while this page is on screen get picture and sound.
-    // A ring that reaches us more than a few seconds late (app was asleep) is not shown either.
-    if (!this.onScreenAt(msg.time) || this.now() - new Date(msg.time).getTime() > LATE_MS) return;
+    // A ring that reaches us more than a few seconds late (app was asleep) gets nothing.
+    if (this.now() - new Date(msg.time).getTime() > LATE_MS) return;
     const settings = deviceSettings();
+    if (!this.onScreenAt(msg.time)) {
+      // Home Assistant is open in a background tab: the ring is happening now, so the
+      // sound plays (once per browser), but no picture – and nothing later on.
+      // Not in the Home Assistant app: there the push notification already rings.
+      if (document.visibilityState !== "hidden" || isHaApp()) return;
+      if (!settings.sound || door.sound === "off" || !this.chime.ready) return;
+      // Let a tab that is on screen claim the sound first.
+      await new Promise((r) => setTimeout(r, 300));
+      try {
+        if (await this.claimSound(entryId, String(msg.time))) this.chime.play(door.sound, door.volume);
+      } catch (err) {
+        console.warn("Portier: Klingelton fehlgeschlagen", err);
+      }
+      return;
+    }
     // Picture first: nothing that happens with the sound may keep it from showing.
     if (settings.overlay) this.show(entryId, { ring: true });
     if (!settings.sound || door.sound === "off") return;
@@ -1154,10 +1174,8 @@ class PortierController {
 
   async open(entryId) {
     try {
-      // The Home Assistant app exposes a bridge to its web view; a plain browser does not.
       // (The server also recognises the app by its login, which is the reliable part.)
-      const bridge = window.externalApp || window.externalAppV2 || window.webkit?.messageHandlers?.externalBus;
-      const client = bridge || rootHass()?.auth?.external ? "ha_app" : "browser";
+      const client = isHaApp() ? "ha_app" : "browser";
       await this.callWS({ type: "portier/open", entry_id: entryId, client });
     } catch (err) {
       throw new Error(err?.message || "Öffnen fehlgeschlagen");
@@ -1465,6 +1483,10 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
 .f small.err{color:var(--pt-alert)}
 .f input[type=text],.f input[type=number],.f input[type=time],.f select{color-scheme:dark;width:100%;font:inherit;font-size:15px;color:var(--pt-ink);
   background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px;padding:10px 12px;min-height:44px}
+/* Same arrow as the device pickers (▾ in a 38px zone at the right), not the browser's own. */
+.f select{appearance:none;-webkit-appearance:none;padding-right:40px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6'%3E%3Cpath d='M0 0h9L4.5 6z' fill='%239AA0A6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 16px center}
 .f input:focus-visible,.f select:focus-visible{outline:2px solid var(--pt-brass);outline-offset:1px;border-color:transparent}
 .f.bad input,.f.bad select{border-color:var(--pt-alert)}
 .ent{display:flex;gap:6px}

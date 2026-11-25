@@ -51,6 +51,9 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   höchstens 5 s alt ist (`LATE_MS`). Einzige Ausnahme: war die Seite sichtbar, aber das Abo
   gerade kurz weg (Neuverbindung), holt der nächste Snapshot es nach – innerhalb dieser 5 s.
   App erst nach dem Klingeln geöffnet → nichts, nur die Push-Nachricht.
+  Browser-Tab im Hintergrund **beim** Klingeln → nur der Ton (sofort, einmal pro Browser, sichtbarer
+  Tab hat Vorrang), kein Livebild, auch nicht beim späteren Zurückwechseln. Nicht in der HA-App
+  (`isHaApp`), dort klingelt schon die Push-Nachricht.
 - Kein Symbol ins Push-Bild malen: das Bild ist das reine Kamerabild; Android erlaubt
   anklickbare Knöpfe nur unter dem Bild.
 - Es darf **nie F5 nötig** sein – auch nicht nach HA-Neustart, Stromausfall oder Update.
