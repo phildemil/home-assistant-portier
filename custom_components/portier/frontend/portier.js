@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.5";
+const VERSION = "1.18.6";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -1485,8 +1485,8 @@ dialog.editor::backdrop{background:#0009;backdrop-filter:blur(2px)}
   background:#1a1d20;border:1px solid var(--pt-edge);border-radius:10px;padding:10px 12px;min-height:44px}
 /* Same arrow as the device pickers (▾ in a 38px zone at the right), not the browser's own. */
 .f select{appearance:none;-webkit-appearance:none;padding-right:40px;cursor:pointer;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6'%3E%3Cpath d='M0 0h9L4.5 6z' fill='%239AA0A6'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 16px center}
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='5'%3E%3Cpath d='M0 0h7L3.5 5z' fill='%239AA0A6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 17.5px center}
 .f input:focus-visible,.f select:focus-visible{outline:2px solid var(--pt-brass);outline-offset:1px;border-color:transparent}
 .f.bad input,.f.bad select{border-color:var(--pt-alert)}
 .ent{display:flex;gap:6px}
