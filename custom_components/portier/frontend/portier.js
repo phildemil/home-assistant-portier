@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.6";
+const VERSION = "1.18.7";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -1111,10 +1111,15 @@ class PortierController {
   async ring(entryId, msg) {
     const door = this.doors.get(entryId);
     if (!door) return;
+    const age = this.now() - new Date(msg.time).getTime();
     // A ring that reaches us more than a few seconds late (app was asleep) gets nothing.
-    if (this.now() - new Date(msg.time).getTime() > LATE_MS) return;
+    if (age > LATE_MS) {
+      this.reportMissed(entryId, msg, "late", age);
+      return;
+    }
     const settings = deviceSettings();
     if (!this.onScreenAt(msg.time)) {
+      this.reportMissed(entryId, msg, "not_on_screen", age);
       // Home Assistant is open in a background tab: the ring is happening now, so the
       // sound plays (once per browser), but no picture – and nothing later on.
       // Not in the Home Assistant app: there the push notification already rings.
@@ -1140,6 +1145,25 @@ class PortierController {
       audible = false;
     }
     if (!audible && settings.overlay) this.overlay?.soundBlocked(entryId);
+  }
+
+  /**
+   * A page that is on screen did not show a ring: tell the server, which writes it to
+   * the Home Assistant log with the reason – so "I had to press twice" can be explained.
+   * Pages in the background are expected to stay quiet and report nothing.
+   */
+  reportMissed(entryId, msg, reason, age) {
+    if (document.visibilityState !== "visible") return;
+    const visibleFor = this.visibleSince === Infinity ? null : Date.now() - this.visibleSince;
+    this.callWS({
+      type: "portier/ring_missed",
+      entry_id: entryId,
+      reason,
+      age_ms: Math.round(age),
+      visible_ms: visibleFor === null ? null : Math.round(visibleFor),
+      late: !!msg.late,
+      app: isHaApp(),
+    }).catch(() => {});
   }
 
   /** Only one tab of this browser plays the sound for a given ring. */

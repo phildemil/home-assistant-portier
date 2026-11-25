@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from typing import Any
 
 import probatio as vol
@@ -31,6 +32,8 @@ from .look import async_save_look, current_look
 from .manager import PortierDoor, all_doors, door_for
 from .preload import async_release_preload, async_set_preload
 
+_LOGGER = logging.getLogger(__name__)
+
 
 def _visible(connection: websocket_api.ActiveConnection, door: PortierDoor) -> bool:
     """A user sees a door if they may read its camera (or it has none)."""
@@ -46,6 +49,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_open)
     websocket_api.async_register_command(hass, ws_ring)
     websocket_api.async_register_command(hass, ws_dismiss)
+    websocket_api.async_register_command(hass, ws_ring_missed)
     websocket_api.async_register_command(hass, ws_config)
     websocket_api.async_register_command(hass, ws_door_save)
     websocket_api.async_register_command(hass, ws_door_delete)
@@ -225,6 +229,51 @@ def ws_dismiss(
         return
     closed = door.async_dismiss(msg["ring_time"], context=connection.context(msg))
     connection.send_result(msg["id"], {"closed": closed})
+
+
+_MISSED_REASONS = {
+    "late": "Meldung kam zu spät an",
+    "not_on_screen": "Seite war beim Klingeln nicht sichtbar",
+}
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/ring_missed",
+        vol.Required("entry_id"): str,
+        vol.Required("reason"): vol.In(list(_MISSED_REASONS)),
+        vol.Optional("age_ms"): vol.Any(None, int),
+        vol.Optional("visible_ms"): vol.Any(None, int),
+        vol.Optional("late"): bool,
+        vol.Optional("app"): bool,
+    }
+)
+@callback
+def ws_ring_missed(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """A page that was on screen did not show a ring: write why to the log."""
+    try:
+        door = door_for(hass, msg["entry_id"])
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    if not _visible(connection, door):
+        connection.send_error(msg["id"], "unauthorized", "Keine Berechtigung")
+        return
+    age, visible = msg.get("age_ms"), msg.get("visible_ms")
+    _LOGGER.warning(
+        "Portier: Klingeln an %s auf einem Gerät von %s nicht angezeigt – %s "
+        "(%s nach dem Klingeln angekommen, Seite sichtbar seit %s, %s%s)",
+        door.name,
+        connection.user.name if connection.user else "?",
+        _MISSED_REASONS[msg["reason"]],
+        f"{age / 1000:.1f} s" if age is not None else "?",
+        f"{visible / 1000:.1f} s" if visible is not None else "-",
+        "HA-App" if msg.get("app") else "Browser",
+        ", nach Neuverbindung" if msg.get("late") else "",
+    )
+    connection.send_result(msg["id"])
 
 
 # ---------------------------------------------------------------- door editing

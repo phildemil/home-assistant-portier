@@ -1081,3 +1081,29 @@ async def test_still_from_portier(hass: HomeAssistant, picture, hass_ws_client) 
     assert base64.b64decode(msg["result"]["data"]) == b"JPEGDATA"  # no ring delay here
     await client.send_json({"id": 2, "type": "portier/still", "entry_id": "nope"})
     assert not (await client.receive_json())["success"]
+
+
+async def test_ring_missed_is_logged(hass: HomeAssistant, hass_ws_client, caplog) -> None:
+    """A page on screen that did not show a ring reports why; it lands in the log."""
+    entry = await _setup(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "portier/ring_missed",
+            "entry_id": entry.entry_id,
+            "reason": "late",
+            "age_ms": 6200,
+            "visible_ms": 800,
+            "late": True,
+            "app": True,
+        }
+    )
+    assert (await client.receive_json())["success"]
+    assert "Meldung kam zu spät an" in caplog.text
+    assert "6.2 s nach dem Klingeln" in caplog.text
+    assert "HA-App, nach Neuverbindung" in caplog.text
+    await client.send_json(
+        {"id": 2, "type": "portier/ring_missed", "entry_id": entry.entry_id, "reason": "bogus"}
+    )
+    assert not (await client.receive_json())["success"]

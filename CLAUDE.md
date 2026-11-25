@@ -85,6 +85,8 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`, `still`
   (Kartenbild über Portiers Bildweg, wenn HAs `camera_proxy` scheitert; Karte merkt sich das pro Tür),
   `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
+  `ring_missed`: eine **sichtbare** Seite hat ein Klingeln nicht gezeigt (zu spät > `LATE_MS` oder
+  „nicht sichtbar beim Klingeln“) → Warnung im HA-Log mit Alter, Sichtbarkeitsdauer, App/Browser.
 - `config_flow.py` – Einrichtung fragt nur den Namen (Fertig-Dialog verlinkt `/portier?edit=new`),
   „Konfigurieren“ ist ein Abbruch mit Link `/portier?edit=<entry_id>`. Einziger Einstellort ist der
   Editor in der Seitenleiste (`PANEL_SCHEMA`/`panel_options`). Alle Geräte sind optional.
