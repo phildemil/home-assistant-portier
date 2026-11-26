@@ -87,7 +87,7 @@ Schalter), Push/Telegram/Hinweise nach HA-Systemsprache (`texts.py`, `tr()`). An
   telegram_bot lädt URLs mit 5 Versuchen à ~10 s → bis 50 s Verzögerung; jedes Handy fragte extra.
   Bildquelle: Kamera ohne Standbild-Adresse + laufender (vorgewärmter) Stream → Schlüsselbild direkt aus
   `camera.stream.async_get_image()` (sofort, umgeht go2rtc, das bei manchen Kameras scheitert); sonst
-  `async_get_image`. Optionen `snapshot_source` (auto/stream/still) und `snapshot_delay` (0–5 s): mit
+  `async_get_image`. Option `snapshot_delay` (0–5 s; die Quellen-Auswahl wurde in 1.20.1 entfernt, immer automatisch): mit
   Versatz warten Push **und** Telegram aufs Foto (Benutzerwunsch: Nachricht erst, wenn das Bild da ist).
 - `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`, `still`
   (Kartenbild über Portiers Bildweg, wenn HAs `camera_proxy` scheitert; Karte merkt sich das pro Tür),

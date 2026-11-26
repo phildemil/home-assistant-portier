@@ -36,11 +36,7 @@ CONF_VOLUME: Final = "volume"
 CONF_TALK: Final = "talk"
 CONF_PRELOAD: Final = "camera_preload"
 # Ring picture for push and Telegram: where it comes from, and how long after the ring.
-CONF_SNAPSHOT_SOURCE: Final = "snapshot_source"
 CONF_SNAPSHOT_DELAY: Final = "snapshot_delay"
-SNAPSHOT_AUTO: Final = "auto"  # the camera's still address if it has one, else the live stream
-SNAPSHOT_STREAM: Final = "stream"
-SNAPSHOT_STILL: Final = "still"
 SNAPSHOT_DELAY_MAX: Final = 5
 # Open by NFC tag (Home Assistant app): tag entities, allowed phones (device ids),
 # optional time window ("HH:MM"), message to the push receivers after opening.
@@ -94,7 +90,6 @@ DEFAULTS: Final = {
     CONF_VOLUME: 70,
     CONF_TALK: False,
     CONF_PRELOAD: True,
-    CONF_SNAPSHOT_SOURCE: SNAPSHOT_AUTO,
     CONF_SNAPSHOT_DELAY: 0,
     CONF_NFC_TAGS: [],
     CONF_NFC_DEVICES: [],

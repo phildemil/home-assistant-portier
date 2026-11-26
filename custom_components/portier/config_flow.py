@@ -43,7 +43,6 @@ from .const import (
     CONF_SOUND,
     CONF_PRELOAD,
     CONF_SNAPSHOT_DELAY,
-    CONF_SNAPSHOT_SOURCE,
     CONF_TALK,
     CONF_TELEGRAM_TARGETS,
     CONF_TRIGGER,
@@ -60,10 +59,7 @@ from .const import (
     PANEL_URL,
     PULSE_DEVICE,
     PULSE_PORTIER,
-    SNAPSHOT_AUTO,
     SNAPSHOT_DELAY_MAX,
-    SNAPSHOT_STILL,
-    SNAPSHOT_STREAM,
     SOUND_DINGDONG,
     SOUND_OFF,
     SOUND_SOFT,
@@ -172,7 +168,6 @@ PANEL_SCHEMA = vol.Schema(
         vol.Optional(CONF_VOLUME): vol.All(vol.Coerce(int), vol.Range(0, 100)),
         vol.Optional(CONF_TALK): bool,
         vol.Optional(CONF_PRELOAD): bool,
-        vol.Optional(CONF_SNAPSHOT_SOURCE): vol.In([SNAPSHOT_AUTO, SNAPSHOT_STREAM, SNAPSHOT_STILL]),
         vol.Optional(CONF_SNAPSHOT_DELAY): vol.All(
             vol.Coerce(float), vol.Range(0, SNAPSHOT_DELAY_MAX)
         ),

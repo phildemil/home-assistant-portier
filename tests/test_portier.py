@@ -1026,25 +1026,6 @@ async def _ring_picture(hass, pixel):
     return await store[image.rsplit("/", 1)[1]][0]
 
 
-async def test_picture_source_choice(hass: HomeAssistant, picture, monkeypatch) -> None:
-    """"Standbild der Kamera" skips the stream; "Aus dem Livebild" uses it even with a still address."""
-    pixel = async_mock_service(hass, "notify", "mobile_app_pixel")
-    _fake_stream(monkeypatch, has_still=True)
-    entry = await _setup(hass, notify_services=["mobile_app_pixel"], snapshot_source="stream",
-                         notify_cooldown=0, debounce_seconds=0)
-    await _press(hass)
-    await hass.async_block_till_done()
-    assert await _ring_picture(hass, pixel) == (b"FROMSTREAM", "image/jpeg")
-
-    hass.config_entries.async_update_entry(entry, options={**entry.options, "snapshot_source": "still"})
-    await hass.config_entries.async_reload(entry.entry_id)
-    await hass.async_block_till_done()
-    pixel.clear()
-    await _press(hass)
-    await hass.async_block_till_done()
-    assert await _ring_picture(hass, pixel) == (b"JPEGDATA", "image/jpeg")
-
-
 async def test_delayed_picture_message_waits_for_it(hass: HomeAssistant, picture) -> None:
     """Picture set to 1 s after the ring: the message comes with it, once it is taken."""
     pixel = async_mock_service(hass, "notify", "mobile_app_pixel")

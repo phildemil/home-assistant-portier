@@ -30,15 +30,11 @@ from .const import (
     CONF_NOTIFY_COOLDOWN,
     CONF_NOTIFY_OPEN,
     CONF_SNAPSHOT_DELAY,
-    CONF_SNAPSHOT_SOURCE,
     CONF_TELEGRAM_TARGETS,
     DOMAIN,
     NOTIFY_ALL_MOBILE,
     PANEL_URL,
-    SNAPSHOT_AUTO,
     SNAPSHOT_DELAY_MAX,
-    SNAPSHOT_STILL,
-    SNAPSHOT_STREAM,
 )
 
 from .texts import tr
@@ -528,10 +524,7 @@ class Notifier:
             return None
         if with_delay and (delay := self._snapshot_delay()):
             await asyncio.sleep(delay)  # e.g. until the visitor stands in front of the camera
-        source = self.door.opt(CONF_SNAPSHOT_SOURCE) or SNAPSHOT_AUTO
-        if source != SNAPSHOT_STILL and (
-            picture := await self._stream_picture(camera, source == SNAPSHOT_STREAM)
-        ):
+        if picture := await self._stream_picture(camera):
             return picture
         try:
             from homeassistant.components.camera import async_get_image  # noqa: PLC0415
@@ -542,12 +535,12 @@ class Notifier:
             return None
         return (image.content, image.content_type) if image.content else None
 
-    async def _stream_picture(self, camera: str, always: bool) -> Picture:
+    async def _stream_picture(self, camera: str) -> Picture:
         """Take the picture straight from the camera's stream – the one the live view shows.
 
-        Automatic: only for a camera without its own still address whose stream is running
-        (kept warm) – instant, and it works even where Home Assistant's usual way (asking
-        go2rtc) fails. always=True ("from the live stream"): also starts the stream if needed.
+        Only for a camera without its own still address whose stream is running (kept
+        warm): instant, and it works even where Home Assistant's usual way (asking go2rtc)
+        fails. Everything else uses Home Assistant's own still.
         """
         try:
             from homeassistant.components.camera.helper import (  # noqa: PLC0415
@@ -557,15 +550,9 @@ class Notifier:
             entity = get_camera_from_entity_id(self.hass, camera)
             stream = entity.stream
             running = stream is not None and stream.available
-            if not always and (not entity.use_stream_for_stills or not running):
+            if not entity.use_stream_for_stills or not running:
                 return None
-            if stream is None:
-                stream = await entity.async_create_stream()
-                if stream is None:
-                    return None
-            data = await asyncio.wait_for(
-                stream.async_get_image(wait_for_next_keyframe=not running), SNAPSHOT_TIMEOUT
-            )
+            data = await asyncio.wait_for(stream.async_get_image(), SNAPSHOT_TIMEOUT)
         except Exception as err:  # noqa: BLE001 – fall back to Home Assistant's usual way
             _LOGGER.debug("Portier: kein Bild aus dem laufenden Stream (%s)", err)
             return None

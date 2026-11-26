@@ -87,9 +87,9 @@ const EN = {
   "Öffnen per NFC braucht einen Türöffner.": "Opening by NFC needs a door opener.",
   "Unbekanntes Handy": "Unknown phone",
   "Wer darf öffnen": "Who may open",
-  "Nur Administratoren dürfen öffnen": "Only administrators may open",
-  "Sonst jeder angemeldete Benutzer, der die Kamera sehen darf, z. B. das Familien-Tablet. Gilt für die Knöpfe in Home Assistant – wer oben für Push oder Telegram ausgewählt ist, kann über die Nachricht immer öffnen.":
-    "Otherwise every signed-in user who may see the camera, e.g. the family tablet. Applies to the buttons in Home Assistant – whoever is chosen above for push or Telegram can always open from the message.",
+  "Öffnen-Knopf nur für Administratoren": "Open button for administrators only",
+  "Bedienschutz, z. B. für ein Familien-Tablet mit eigenem Konto: andere Benutzer sehen in Portier keinen Öffnen-Knopf. Kein Schutz gegen Absicht – in Home Assistant kann jeder Benutzer das Relais auch direkt schalten. Push- und Telegram-Empfänger können über die Nachricht immer öffnen.":
+    "Guards against mistakes, e.g. a family tablet with its own account: other users see no open button in Portier. No protection against intent – in Home Assistant every user can also switch the relay directly. Push and Telegram recipients can always open from the message.",
   "Öffnen per NFC-Aufkleber": "Open with an NFC tag",
   "Handy mit der Home-Assistant-App an einen Aufkleber an der Tür halten – ohne Tippen. Praktisch für Kinder.":
     "Hold a phone with the Home Assistant app to a tag at the door – no tapping. Handy for children.",
@@ -112,9 +112,6 @@ const EN = {
     "What triggers the ring: Shelly input, binary sensor, event, button, switch or helper.",
   "Livebild vorwärmen": "Keep live view warm",
   "Hält den Kamerastream offen, damit das Livebild beim Klingeln sofort da ist.": "Keeps the camera stream open so the live view is there the moment someone rings.",
-  "Foto für Push und Telegram": "Photo for push and Telegram", "Automatisch": "Automatic",
-  "Aus dem Livebild": "From the live view", "Standbild der Kamera": "Camera still image",
-  "Automatisch: das Standbild der Kamera, wenn sie eines hat, sonst aus dem Livebild.": "Automatic: the camera's still image if it has one, otherwise from the live view.",
   "Foto nach dem Klingeln": "Photo after the ring",
   "Push und Telegram kommen, sobald das Foto gemacht ist. 0 = sofort.": "Push and Telegram go out once the photo is taken. 0 = at once.",
   "Türöffner": "Door opener",
@@ -1751,7 +1748,7 @@ class PortierEditor extends HTMLElement {
     const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
     const on = (v.nfc_tags || []).length > 0;
     return `<fieldset><legend>Wer darf öffnen</legend>
-          ${this.check("open_admin_only", "Nur Administratoren dürfen öffnen", v.open_admin_only, "Sonst jeder angemeldete Benutzer, der die Kamera sehen darf, z. B. das Familien-Tablet. Gilt für die Knöpfe in Home Assistant – wer oben für Push oder Telegram ausgewählt ist, kann über die Nachricht immer öffnen.")}
+          ${this.check("open_admin_only", "Öffnen-Knopf nur für Administratoren", v.open_admin_only, "Bedienschutz, z. B. für ein Familien-Tablet mit eigenem Konto: andere Benutzer sehen in Portier keinen Öffnen-Knopf. Kein Schutz gegen Absicht – in Home Assistant kann jeder Benutzer das Relais auch direkt schalten. Push- und Telegram-Empfänger können über die Nachricht immer öffnen.")}
           ${this.check("nfc_on", "Öffnen per NFC-Aufkleber", on, "Handy mit der Home-Assistant-App an einen Aufkleber an der Tür halten – ohne Tippen. Praktisch für Kinder.")}
           <div class="nfc-body sub-block"${on ? "" : " hidden"}>
           <div class="f" data-f="nfc_tags"><span>NFC-Aufkleber an der Tür</span>
@@ -1911,11 +1908,6 @@ class PortierEditor extends HTMLElement {
             <small>Hält den Kamerastream offen, damit das Livebild beim Klingeln sofort da ist.</small>
           </div>
           <div class="two" data-f="snapshot">
-            ${this.select("snapshot_source", "Foto für Push und Telegram", v.snapshot_source || "auto", [
-              ["auto", "Automatisch"],
-              ["stream", "Aus dem Livebild"],
-              ["still", "Standbild der Kamera"],
-            ], "Automatisch: das Standbild der Kamera, wenn sie eines hat, sonst aus dem Livebild.")}
             ${this.num("snapshot_delay", "Foto nach dem Klingeln", v.snapshot_delay ?? 0, "s", 0, 5, 1, "Push und Telegram kommen, sobald das Foto gemacht ist. 0 = sofort.")}
           </div>
           </div>
@@ -2167,7 +2159,6 @@ class PortierEditor extends HTMLElement {
       open_admin_only: f.elements.open_admin_only.checked,
       talk: f.elements.talk.checked,
       camera_preload: f.elements.camera_preload.checked,
-      snapshot_source: val("snapshot_source"),
       snapshot_delay: num("snapshot_delay"),
       trigger_edge: val("trigger_edge"),
       event_types: val("event_types"),
