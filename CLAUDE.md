@@ -2,7 +2,10 @@
 
 Video-Türklingel als Home-Assistant-Integration (`custom_components/portier`). Entstanden als
 Neubau der Idee aus `phildemil/home-assistant-bell` (nicht kopiert). Benutzer spricht Deutsch,
-Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
+Oberfläche ist Deutsch, Englisch für alle anderen Sprachen: Frontend nach HA-Sprache des
+Benutzers (`t()`/`localize()`, Wörterbuch `EN` mit dem deutschen Text als Schlüssel, kein eigener
+Schalter), Push/Telegram/Hinweise nach HA-Systemsprache (`texts.py`, `tr()`). Android-Kanalnamen
+„Türklingel“/„Türklingel Info“ bleiben fest (Umbenennen würde Kanal-Einstellungen am Handy zurücksetzen).
 
 ## Was Portier macht
 - Pro Tür ein Config-Entry: Klingeltaster (binary_sensor, event, input_button, button, switch,
@@ -89,8 +92,7 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - `websocket.py` – `portier/subscribe` (Snapshot, ring, dismiss, show), `open`, `ring`, `still`
   (Kartenbild über Portiers Bildweg, wenn HAs `camera_proxy` scheitert; Karte merkt sich das pro Tür),
   `dismiss`, `config`, `door/save`, `door/delete` (die letzten drei nur Admin).
-  `ring_missed`: eine **sichtbare** Seite hat ein Klingeln nicht gezeigt (zu spät > `LATE_MS` oder
-  „nicht sichtbar beim Klingeln“) → Warnung im HA-Log mit Alter, Sichtbarkeitsdauer, App/Browser.
+  (`ring_missed`-Protokoll in 1.20.0 wieder entfernt: Fehlersuche erledigt, schlanker.)
 - `config_flow.py` – Einrichtung fragt nur den Namen (Fertig-Dialog verlinkt `/portier?edit=new`),
   „Konfigurieren“ ist ein Abbruch mit Link `/portier?edit=<entry_id>`. Einziger Einstellort ist der
   Editor in der Seitenleiste (`PANEL_SCHEMA`/`panel_options`). Alle Geräte sind optional.
@@ -110,7 +112,7 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   Livebilder (`panelLive`, mit Endzeit) und startet sie nach einem Seitenwechsel wieder.
   „Live ansehen“ endet nach 5 min (`PANEL_LIVE_MS`), das Overlay nach `live_seconds`.
   Wer dauernd live sehen will, nimmt eine Kamera-Karte im Dashboard.
-  `catchUp` zeigt und meldet nur Klingeln, die höchstens `LATE_MS` alt sind (sonst Fehlalarme im Log).
+  `catchUp` zeigt nur Klingeln, die höchstens `LATE_MS` alt sind.
   Fully Kiosk (`window.fully`): Klingeln weckt den Bildschirm und zeigt das Bild ohne Sichtbarkeitsprüfung.
 - Telegram mit mehreren Bots: HA verlangt dann `config_entry_id` bei jedem Aufruf. `telegram_bots()`
   ordnet jeden Chat dem Bot zu, bei dem er erlaubt ist; Antworten/Bearbeiten nehmen den Bot aus dem Event.

@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.19.0";
+const VERSION = "1.20.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -37,18 +37,178 @@ const timeOf = (iso) =>
   iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "–";
 
 function relative(iso, now = Date.now()) {
-  if (!iso) return "noch nie";
+  if (!iso) return t("noch nie");
   const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
-  if (s < 10) return "gerade eben";
-  if (s < 60) return `vor ${s} s`;
+  if (s < 10) return t("gerade eben");
+  if (s < 60) return t("vor {n} s", { n: s });
   const m = Math.round(s / 60);
-  if (m < 60) return `vor ${m} min`;
+  if (m < 60) return t("vor {n} min", { n: m });
   const d = new Date(iso);
   const today = new Date(now).toDateString() === d.toDateString();
-  return today ? `heute ${timeOf(iso)}` : d.toLocaleDateString([], { day: "numeric", month: "short" }) + ` ${timeOf(iso)}`;
+  return today ? t("heute {time}", { time: timeOf(iso) }) : d.toLocaleDateString([], { day: "numeric", month: "short" }) + ` ${timeOf(iso)}`;
 }
 
 const rootHass = () => document.querySelector("home-assistant")?.hass;
+
+/* -------------------------------------------------------------- language */
+
+// German is the source text and the key; every other language gets English. The page
+// follows the language of the signed-in Home Assistant user (profile).
+const EN = {
+  // times
+  "noch nie": "never", "gerade eben": "just now", "vor {n} s": "{n} s ago", "vor {n} min": "{n} min ago",
+  "heute {time}": "today {time}", "Heute {time}": "Today {time}", "Gestern {time}": "Yesterday {time}",
+  // opener history
+  "Home-Assistant-App": "Home Assistant app", "Push-Nachricht": "Push notification", "NFC an der Tür": "NFC at the door",
+  "Taste in Home Assistant": "Button in Home Assistant", "Aktion portier.open": "Action portier.open",
+  "Automation": "Automation", "Testklingel": "Test ring", "Klingeltaster": "Doorbell button", "Unbekannt": "Unknown",
+  " · von {who} über {how}": " · by {who} via {how}", "App": "app",
+  // sound and camera
+  "♪ Spielt …": "♪ Playing …", "Ton blockiert": "Sound blocked", "Keine Kamera": "No camera",
+  "kein Bild": "no picture", "Videofehler": "video error", "Zeitüberschreitung": "timeout",
+  "Verbindung fehlgeschlagen": "connection failed", "Nur mit HTTPS": "HTTPS only", "Kamera hört nicht": "Camera does not listen",
+  "Mikrofon nicht erlaubt": "Microphone not allowed", "Kein Mikrofon": "No microphone", "Livebild beendet": "Live view ended",
+  "Ton der Kamera": "Camera sound", "Gedrückt halten zum Sprechen": "Hold to talk", "Verbindet …": "Connecting …",
+  "Halten zum Sprechen": "Hold to talk", "Spricht …": "Talking …",
+  // open key
+  "Tür öffnen": "Open door", "Öffnet …": "Opening …", "Geöffnet": "Opened", "Fehlgeschlagen": "Failed",
+  "Öffnen fehlgeschlagen": "Opening failed", "Tür geöffnet": "Door opened",
+  "Keine Berechtigung zum Öffnen": "Not allowed to open", "Keine Berechtigung": "Not allowed",
+  "Tür nicht gefunden": "Door not found", "Die Kamera liefert gerade kein Bild": "The camera delivers no picture right now",
+  // overlay
+  "Türklingel": "Doorbell", "Schließen": "Close", "Es klingelt": "Someone is ringing",
+  "Ton blockiert – einmal tippen": "Sound blocked – tap once",
+  // editor
+  "Der Türöffner darf nicht gleichzeitig Klingeltaster oder Gong sein.": "The door opener cannot also be the doorbell button or the chime.",
+  "Dieser Türöffner gehört schon zu einer anderen Tür.": "This door opener already belongs to another door.",
+  "Bitte mindestens ein Handy auswählen, das mit dem Aufkleber öffnen darf.": "Please choose at least one phone that may open with the tag.",
+  "Öffnen per NFC braucht einen Türöffner.": "Opening by NFC needs a door opener.",
+  "Unbekanntes Handy": "Unknown phone",
+  "Wer darf öffnen": "Who may open",
+  "Nur Administratoren dürfen öffnen": "Only administrators may open",
+  "Sonst jeder angemeldete Benutzer, der die Kamera sehen darf, z. B. das Familien-Tablet. Gilt für die Knöpfe in Home Assistant – wer oben für Push oder Telegram ausgewählt ist, kann über die Nachricht immer öffnen.":
+    "Otherwise every signed-in user who may see the camera, e.g. the family tablet. Applies to the buttons in Home Assistant – whoever is chosen above for push or Telegram can always open from the message.",
+  "Öffnen per NFC-Aufkleber": "Open with an NFC tag",
+  "Handy mit der Home-Assistant-App an einen Aufkleber an der Tür halten – ohne Tippen. Praktisch für Kinder.":
+    "Hold a phone with the Home Assistant app to a tag at the door – no tapping. Handy for children.",
+  "NFC-Aufkleber an der Tür": "NFC tags at the door",
+  "Noch kein Aufkleber bekannt. Das Handy mit der Home-Assistant-App einmal an den Aufkleber halten (oder unter Einstellungen → Tags einen anlegen), dann erscheint er hier.":
+    "No tag known yet. Hold the phone with the Home Assistant app to the tag once (or add one under Settings → Tags), then it shows up here.",
+  "Das Handy muss Home Assistant erreichen, z. B. über das WLAN an der Tür.": "The phone must reach Home Assistant, e.g. through the Wi-Fi at the door.",
+  "Handys, die öffnen dürfen": "Phones that may open",
+  "Keine Handys mit der Home-Assistant-App gefunden.": "No phones with the Home Assistant app found.",
+  "Nur diese Handys öffnen. Andere Handys am Aufkleber bewirken nichts.": "Only these phones open. Other phones at the tag do nothing.",
+  "Erlaubt ab": "Allowed from", "Erlaubt bis": "Allowed until", "Beide Zeiten leer = rund um die Uhr.": "Both times empty = around the clock.",
+  "Nachricht, wenn jemand per NFC öffnet": "Message when someone opens by NFC",
+  "Geht an die Push- und Telegram-Empfänger dieser Tür.": "Goes to this door's push and Telegram recipients.",
+  "Einstellungen konnten nicht geladen werden: {err}": "Settings could not be loaded: {err}",
+  "Tippen zum Suchen …": "Type to search …", "Liste zeigen": "Show list", "Alle zeigen": "Show all",
+  "Keine": "None", "Nichts gefunden": "Nothing found", "Nicht gefunden": "Not found",
+  "Tür bearbeiten": "Edit door", "Neue Tür": "New door", "Tür & Geräte": "Door & devices", "Name der Tür": "Name of the door",
+  "z. B. Haustür": "e.g. Front door", "Kamera": "Camera",
+  "Was beim Klingeln auslöst: Shelly-Eingang, Binärsensor, Event, Taste, Schalter oder Helfer.":
+    "What triggers the ring: Shelly input, binary sensor, event, button, switch or helper.",
+  "Livebild vorwärmen": "Keep live view warm",
+  "Hält den Kamerastream offen, damit das Livebild beim Klingeln sofort da ist.": "Keeps the camera stream open so the live view is there the moment someone rings.",
+  "Foto für Push und Telegram": "Photo for push and Telegram", "Automatisch": "Automatic",
+  "Aus dem Livebild": "From the live view", "Standbild der Kamera": "Camera still image",
+  "Automatisch: das Standbild der Kamera, wenn sie eines hat, sonst aus dem Livebild.": "Automatic: the camera's still image if it has one, otherwise from the live view.",
+  "Foto nach dem Klingeln": "Photo after the ring",
+  "Push und Telegram kommen, sobald das Foto gemacht ist. 0 = sofort.": "Push and Telegram go out once the photo is taken. 0 = at once.",
+  "Türöffner": "Door opener",
+  "Relais, Schalter oder Helfer bekommen einen Impuls. Schloss wird geöffnet, Taste gedrückt, Skript ausgeführt.":
+    "Relays, switches or helpers get a pulse. A lock is opened, a button pressed, a script run.",
+  "Türkontakt": "Door contact", "Zeigt an, ob die Tür offen ist.": "Shows whether the door is open.",
+  "Gong": "Chime", "Ein echter Gong, der bei jedem Klingeln kurz angesteuert wird.": "A real chime that is triggered briefly on every ring.",
+  "Benachrichtigungen": "Notifications", "Push-Nachricht an": "Push notification to",
+  "Keine Benachrichtigungsdienste gefunden. Installiere die Home-Assistant-App auf dem Handy.": "No notification services found. Install the Home Assistant app on the phone.",
+  "Handys mit der Home-Assistant-App bekommen Kamerabild und Öffnen-Knopf.": "Phones with the Home Assistant app get the camera picture and an open button.",
+  "Telegram an": "Telegram to",
+  "Die Chats aus der Telegram-Bot-Integration. Nur ausgewählte Chats dürfen über den Knopf öffnen.": "The chats from the Telegram bot integration. Only chosen chats may open with the button.",
+  "In der Telegram-Bot-Integration noch keinen Chat erlaubt.": "No chat allowed in the Telegram bot integration yet.",
+  "Die Telegram-Bot-Integration ist in Home Assistant noch nicht eingerichtet.": "The Telegram bot integration is not set up in Home Assistant yet.",
+  "„Tür öffnen“-Knopf in der Nachricht": "“Open door” button in the message",
+  "Jeder Knopf öffnet nur einmal. Am Handy ist die Entsperrung nötig.": "Each button opens only once. The phone must be unlocked.",
+  "Knopf gültig für": "Button valid for", "Mindestabstand": "Minimum gap",
+  "Livebild & Ton": "Live view & sound", "Klingelton im Browser": "Ring sound in the browser",
+  "Ding-Dong": "Ding-dong", "Sanft": "Soft", "Dreiklang": "Triad", "Aus": "Off", "Anhören": "Listen", "Lautstärke": "Volume",
+  "Livebild offen lassen": "Keep live view open", "Nach dem Öffnen noch": "After opening",
+  "Gegensprechen": "Two-way talk",
+  "Lautsprecher- und Sprechen-Knopf im Livebild. Braucht WebRTC (z. B. go2rtc), eine Kamera, die Ton annimmt, und Home Assistant über https – sonst steht am Knopf, was fehlt.":
+    "Speaker and talk button in the live view. Needs WebRTC (e.g. go2rtc), a camera that accepts audio, and Home Assistant over https – otherwise the button says what is missing.",
+  "Feineinstellungen": "Fine-tuning", "Türöffner & Gong": "Door opener & chime",
+  "Wer schaltet das Relais wieder aus?": "Who switches the relay off again?",
+  "Portier, nach der Impulsdauer": "Portier, after the pulse time",
+  "Das Relais selbst (eigener Auto-Aus-Timer)": "The relay itself (its own auto-off timer)",
+  "„Relais selbst“ nur wählen, wenn im Gerät ein Auto-Aus eingestellt ist, z. B. Shelly „Auto Off“. Das ist am sichersten.":
+    "Choose “the relay itself” only if an auto-off is set in the device, e.g. Shelly “Auto Off”. That is the safest.",
+  "Impuls Türöffner": "Door opener pulse", "Impuls Gong": "Chime pulse",
+  "Schloss wieder verriegeln nach": "Lock again after",
+  "Nur für Schlösser, die bloß ent- und verriegeln können (kein „Öffnen“). Ist die Tür dann noch offen (Türkontakt), wartet Portier, bis sie zu ist. 0 = nie.":
+    "Only for locks that can just unlock and lock (no “open”). If the door is still open then (door contact), Portier waits until it is closed. 0 = never.",
+  "Auslösen bei": "Trigger on", "Einschalten (Standard)": "Turning on (default)",
+  "Ausschalten (invertierter Eingang)": "Turning off (inverted input)", "Beides": "Both",
+  "Nur diese Event-Typen": "Only these event types", "z. B. single_push": "e.g. single_push",
+  "Nur für Event-Entitäten. Leer bedeutet: jeder Tastendruck.": "Only for event entities. Empty means: every press.",
+  "Entprellung": "Debounce", "Mehrfaches Drücken innerhalb dieser Zeit zählt als ein Klingeln.": "Several presses within this time count as one ring.",
+  "Tür entfernen": "Remove door", "Abbrechen": "Cancel", "Speichern": "Save", "Tür anlegen": "Add door",
+  "Wirklich entfernen?": "Really remove?", "Entfernen fehlgeschlagen": "Removing failed",
+  "Bitte die markierten Felder prüfen.": "Please check the marked fields.", "Bitte einen Namen eingeben.": "Please enter a name.",
+  "Diese Entität gibt es nicht.": "This entity does not exist.", "Speichert …": "Saving …", "Speichern fehlgeschlagen": "Saving failed",
+  // panel
+  "Menü": "Menu", "Installierte Portier-Version": "Installed Portier version", "+ Tür hinzufügen": "+ Add door",
+  "Dieses Gerät": "This device",
+  "Gilt nur für diesen Browser. Push aufs Handy und Telegram stellst du in den Einstellungen der Tür ein.":
+    "Applies to this browser only. Push to the phone and Telegram are set in the door's settings.",
+  "Livebild einblenden, wenn es klingelt": "Show the live view when someone rings", "Klingelton abspielen": "Play ring sound",
+  "Ton testen": "Test sound", "Farben": "Colors",
+  "Gilt für alle Geräte. Hauptfarbe: Öffnen-Knopf, Lampe, Balken, Schalter und Knöpfe. Zweitfarbe: Bestätigungen wie „Tür geöffnet“.":
+    "Applies to all devices. Main color: open button, lamp, bar, switches and buttons. Second color: confirmations like “Door opened”.",
+  "Standard (Messing und Grün)": "Default (brass and green)", "Wie System (Home-Assistant-Design)": "Like the system (Home Assistant theme)",
+  "Eigene Farben": "Own colors", "Hauptfarbe": "Main color", "Zweitfarbe": "Second color",
+  "Gespeichert – gilt auf allen Geräten.": "Saved – applies on all devices.", "Nicht gespeichert: {err}": "Not saved: {err}",
+  "Ton ist in diesem Browser freigeschaltet.": "Sound is enabled in this browser.",
+  "Ton wird beim ersten Tippen auf die Seite freigeschaltet.": "Sound is enabled with the first tap on the page.",
+  "Noch keine Tür eingerichtet.": "No door set up yet.", "+ Erste Tür hinzufügen": "+ Add the first door",
+  "Ein Administrator kann hier Türen anlegen.": "An administrator can add doors here.",
+  "Live ansehen": "Watch live", "Live beenden": "Stop live", "Klingelt …": "Ringing …",
+  "Klingelverlauf": "Ring history", "Türöffner-Verlauf": "Door opener history",
+  "Klingelverlauf ({n})": "Ring history ({n})", "Türöffner-Verlauf ({n})": "Door opener history ({n})",
+  "offen": "open", "zu": "closed", "öffnet": "opening", "schließt": "closing", "verriegelt": "locked", "entriegelt": "unlocked",
+  "nicht erreichbar": "unavailable", "Zuletzt geklingelt": "Last ring", "Tür": "Door", "Zuletzt geöffnet": "Last opened",
+  "Öffner": "Opener", "aktiv": "active",
+  "Noch hat niemand geklingelt.": "Nobody has rung yet.", "Noch nie über Portier geöffnet.": "Never opened through Portier yet.",
+};
+
+/** "de" for German users of Home Assistant, otherwise "en". */
+function lang() {
+  const h = rootHass();
+  const l = h?.locale?.language || h?.language || navigator.language || "de";
+  return String(l).toLowerCase().startsWith("de") ? "de" : "en";
+}
+
+/** The text in the user's language, with {placeholders} filled in. */
+function t(de, vars) {
+  const s = lang() === "de" ? de : (EN[de] ?? de);
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m)) : s;
+}
+
+/** Translate the fixed texts of freshly rendered markup (text, labels, tooltips, hints). */
+function localize(root) {
+  if (!root || lang() === "de") return root;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const key = n.nodeValue.trim();
+    if (key && EN[key] !== undefined) n.nodeValue = n.nodeValue.replace(key, EN[key]);
+  }
+  for (const el of root.querySelectorAll("[aria-label],[title],[placeholder]")) {
+    for (const a of ["aria-label", "title", "placeholder"]) {
+      const v = el.getAttribute(a);
+      if (v && EN[v] !== undefined) el.setAttribute(a, EN[v]);
+    }
+  }
+  return root;
+}
 
 /* ------------------------------------------------------------ accent colors */
 
@@ -214,13 +374,16 @@ const OPEN_VIA = {
 /** "Heute 17:16:27", "Gestern 14:56:54", "Fr 20.11. 12:59:32" (year added if not this year). */
 function when(iso) {
   const d = new Date(iso);
-  const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const loc = lang() === "de" ? "de-DE" : [];
+  const time = d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((day(new Date()) - day(d)) / 86400000);
-  if (days === 0) return `Heute ${time}`;
-  if (days === 1) return `Gestern ${time}`;
-  const wd = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()];
-  const dd = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`;
+  if (days === 0) return t("Heute {time}", { time });
+  if (days === 1) return t("Gestern {time}", { time });
+  const wd = d.toLocaleDateString(loc, { weekday: "short" }).replace(".", "");
+  const dd = lang() === "de"
+    ? `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`
+    : d.toLocaleDateString(loc, { day: "numeric", month: "short" }) + " ";
   const yy = d.getFullYear() === new Date().getFullYear() ? "" : String(d.getFullYear());
   return `${wd} ${dd}${yy} ${time}`;
 }
@@ -228,8 +391,8 @@ function when(iso) {
 /** Which button rang (its name, entity id as tooltip) or who pressed "Testklingel". */
 const ringWho = (r) =>
   r.source === "test"
-    ? [r.who || "Automation", "Testklingel"]
-    : [r.who || r.entity || "Klingeltaster", r.who && r.entity ? r.entity : "Klingeltaster"];
+    ? [r.who || t("Automation"), t("Testklingel")]
+    : [r.who || r.entity || t("Klingeltaster"), r.who && r.entity ? r.entity : t("Klingeltaster")];
 /** One history row as aligned columns: time · way · name (name on the right). */
 const histRow = (time, name, detail) =>
   `<li><time>${esc(time)}</time><span title="${esc(detail)}">${esc(detail)}</span><b>${esc(name)}</b></li>`;
@@ -239,10 +402,11 @@ function openedBy(door) {
   if (!r || (door.last_opened && r.time !== door.last_opened)) return "";
   // The live view keeps it short: push button and app are both just "the app" there.
   // The opener history shows exactly which way it was.
-  const how = ["push", "ha_app"].includes(r.via) ? "App" : OPEN_VIA[r.via] || r.via;
-  return ` · von ${esc(openWho(r))} über ${esc(how)}`;
+  const how = ["push", "ha_app"].includes(r.via) ? t("App") : openVia(r.via);
+  return t(" · von {who} über {how}", { who: esc(openWho(r)), how: esc(how) });
 }
-const openWho = (r) => r.who || (["button", "service"].includes(r.via) ? "Automation" : "Unbekannt");
+const openWho = (r) => r.who || t(["button", "service"].includes(r.via) ? "Automation" : "Unbekannt");
+const openVia = (via) => (OPEN_VIA[via] ? t(OPEN_VIA[via]) : via);
 
 /** A "play sound" button that says what it is doing, like the test ring button. */
 async function soundButton(btn, kind, volume) {
@@ -250,11 +414,11 @@ async function soundButton(btn, kind, volume) {
   const label = btn.textContent;
   btn.disabled = true;
   btn.classList.add("working");
-  btn.textContent = "♪ Spielt …";
+  btn.textContent = t("♪ Spielt …");
   const ok = await ctrl.chime.playNow(kind === "off" ? "dingdong" : kind, volume);
   if (!ok) {
     btn.classList.replace("working", "failed");
-    btn.textContent = "Ton blockiert";
+    btn.textContent = t("Ton blockiert");
   }
   setTimeout(() => {
     btn.disabled = false;
@@ -346,7 +510,7 @@ class CameraView {
     if (!hass || !state) {
       if (this.talk) this.setTalk("unsupported");
       this.starting = false;
-      return this.message("Keine Kamera");
+      return this.message(t("Keine Kamera"));
     }
     const pic = state.attributes.entity_picture;
     if (pic) this.still.src = `${pic}${pic.includes("?") ? "&" : "?"}t=${Date.now()}`;
@@ -426,9 +590,9 @@ class CameraView {
           reject(err);
         } else resolve(v);
       };
-      const timer = setTimeout(() => done(new Error("kein Bild")), ms);
+      const timer = setTimeout(() => done(new Error(t("kein Bild"))), ms);
       v.addEventListener("playing", () => done(), { once: true });
-      v.addEventListener("error", () => done(new Error("Videofehler")), { once: true });
+      v.addEventListener("error", () => done(new Error(t("Videofehler"))), { once: true });
       attach(v);
       this.el.append(v);
       v.play?.().catch(() => {});
@@ -455,7 +619,7 @@ class CameraView {
 
   webrtc(hass) {
     return new Promise(async (resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Zeitüberschreitung")), 12000);
+      const timer = setTimeout(() => reject(new Error(t("Zeitüberschreitung"))), 12000);
       const fail = (err) => {
         clearTimeout(timer);
         reject(err);
@@ -491,7 +655,7 @@ class CameraView {
           }
         };
         pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "failed") fail(new Error("Verbindung fehlgeschlagen"));
+          if (pc.connectionState === "failed") fail(new Error(t("Verbindung fehlgeschlagen")));
         };
         let sessionId = null;
         const pending = [];
@@ -545,18 +709,18 @@ class CameraView {
 
   /** Start sending the microphone to the camera. Throws with a short German reason. */
   async talkStart() {
-    if (!this.audioSender) throw new Error(this.talkState === "insecure" ? "Nur mit HTTPS" : "Kamera hört nicht");
+    if (!this.audioSender) throw new Error(t(this.talkState === "insecure" ? "Nur mit HTTPS" : "Kamera hört nicht"));
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch (err) {
-      throw new Error(err?.name === "NotAllowedError" ? "Mikrofon nicht erlaubt" : "Kein Mikrofon");
+      throw new Error(t(err?.name === "NotAllowedError" ? "Mikrofon nicht erlaubt" : "Kein Mikrofon"));
     }
     if (this.closed || !this.audioSender) {
       stream.getTracks().forEach((t) => t.stop());
-      throw new Error("Livebild beendet");
+      throw new Error(t("Livebild beendet"));
     }
     this.talkStop();
     this.micStream = stream;
@@ -807,27 +971,27 @@ function wireKey(btn, label, onOpen) {
     btn.disabled = false;
     btn.classList.remove("done", "busy");
     btn.innerHTML = KEY_SVG + RING_SVG;
-    label.textContent = "Tür öffnen";
+    label.textContent = t("Tür öffnen");
     label.classList.remove("ok", "bad");
   };
   btn.addEventListener("click", async () => {
     if (btn.disabled) return;
     btn.disabled = true;
     btn.classList.add("busy");
-    label.textContent = "Öffnet …";
+    label.textContent = t("Öffnet …");
     navigator.vibrate?.(15);
     try {
       await onOpen();
       btn.classList.remove("busy");
       btn.classList.add("done");
       btn.innerHTML = CHECK_SVG;
-      label.textContent = "Geöffnet";
+      label.textContent = t("Geöffnet");
       label.classList.add("ok");
       navigator.vibrate?.([30, 40, 30]);
       setTimeout(idle, 3000);
     } catch (err) {
       btn.classList.remove("busy");
-      label.textContent = err?.message || "Fehlgeschlagen";
+      label.textContent = t(err?.message || "Fehlgeschlagen");
       label.classList.add("bad");
       setTimeout(idle, 4000);
     }
@@ -838,8 +1002,8 @@ const RING_SVG = `<svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><ci
 function keyMarkup(canOpen) {
   if (!canOpen) return "";
   return `<div class="key-wrap">
-    <button class="key" aria-label="Tür öffnen">${KEY_SVG}${RING_SVG}</button>
-    <span class="key-label">Tür öffnen</span>
+    <button class="key" aria-label="${t("Tür öffnen")}">${KEY_SVG}${RING_SVG}</button>
+    <span class="key-label">${t("Tür öffnen")}</span>
   </div>`;
 }
 
@@ -859,10 +1023,10 @@ const MUTE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="curren
 
 function talkMarkup() {
   return `<div class="talk-wrap" hidden>
-    <button class="spk" aria-label="Ton der Kamera" aria-pressed="false">${MUTE_SVG}</button>
+    <button class="spk" aria-label="${t("Ton der Kamera")}" aria-pressed="false">${MUTE_SVG}</button>
     <div class="mic-wrap">
-      <button class="mic" aria-label="Gedrückt halten zum Sprechen" disabled>${MIC_SVG}</button>
-      <span class="talk-label">Verbindet …</span>
+      <button class="mic" aria-label="${t("Gedrückt halten zum Sprechen")}" disabled>${MIC_SVG}</button>
+      <span class="talk-label">${t("Verbindet …")}</span>
     </div>
   </div>`;
 }
@@ -901,7 +1065,7 @@ function wireTalk(root, getView) {
       /* ignore */
     }
     mic.classList.add("on");
-    label.textContent = "Spricht …";
+    label.textContent = t("Spricht …");
     navigator.vibrate?.(10);
     try {
       await getView()?.talkStart();
@@ -910,8 +1074,8 @@ function wireTalk(root, getView) {
     } catch (err) {
       active = false;
       mic.classList.remove("on");
-      label.textContent = err?.message || "Fehlgeschlagen";
-      setTimeout(() => !active && (label.textContent = TALK_TEXT[state]), 3000);
+      label.textContent = t(err?.message || "Fehlgeschlagen");
+      setTimeout(() => !active && (label.textContent = t(TALK_TEXT[state])), 3000);
     }
   };
   const stop = () => {
@@ -919,7 +1083,7 @@ function wireTalk(root, getView) {
     active = false;
     getView()?.talkStop();
     mic.classList.remove("on");
-    label.textContent = TALK_TEXT[state];
+    label.textContent = t(TALK_TEXT[state]);
   };
   mic.addEventListener("pointerdown", start);
   for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) mic.addEventListener(ev, stop);
@@ -932,7 +1096,7 @@ function wireTalk(root, getView) {
       state = s;
       wrap.hidden = false;
       mic.disabled = s !== "ready";
-      if (!active) label.textContent = TALK_TEXT[s] || "";
+      if (!active) label.textContent = t(TALK_TEXT[s]) || "";
     },
     reset() {
       stop();
@@ -1132,14 +1296,10 @@ class PortierController {
     if (!door) return;
     const age = this.now() - new Date(msg.time).getTime();
     // A ring that reaches us more than a few seconds late (app was asleep) gets nothing.
-    if (age > LATE_MS) {
-      this.reportMissed(entryId, msg, "late", age);
-      return;
-    }
+    if (age > LATE_MS) return;
     const settings = deviceSettings();
     const kiosk = kioskWake();
     if (!kiosk && !this.onScreenAt(msg.time)) {
-      this.reportMissed(entryId, msg, "not_on_screen", age);
       // Home Assistant is open in a background tab: the ring is happening now, so the
       // sound plays (once per browser), but no picture – and nothing later on.
       // Not in the Home Assistant app: there the push notification already rings.
@@ -1165,25 +1325,6 @@ class PortierController {
       audible = false;
     }
     if (!audible && settings.overlay) this.overlay?.soundBlocked(entryId);
-  }
-
-  /**
-   * A page that is on screen did not show a ring: tell the server, which writes it to
-   * the Home Assistant log with the reason – so "I had to press twice" can be explained.
-   * Pages in the background are expected to stay quiet and report nothing.
-   */
-  reportMissed(entryId, msg, reason, age) {
-    if (document.visibilityState !== "visible") return;
-    const visibleFor = this.visibleSince === Infinity ? null : Date.now() - this.visibleSince;
-    this.callWS({
-      type: "portier/ring_missed",
-      entry_id: entryId,
-      reason,
-      age_ms: Math.round(age),
-      visible_ms: visibleFor === null ? null : Math.round(visibleFor),
-      late: !!msg.late,
-      app: isHaApp(),
-    }).catch(() => {});
   }
 
   /** Only one tab of this browser plays the sound for a given ring. */
@@ -1222,7 +1363,7 @@ class PortierController {
       const client = isHaApp() ? "ha_app" : "browser";
       await this.callWS({ type: "portier/open", entry_id: entryId, client });
     } catch (err) {
-      throw new Error(err?.message || "Öffnen fehlgeschlagen");
+      throw new Error(t(err?.message || "Öffnen fehlgeschlagen"));
     }
   }
 
@@ -1303,7 +1444,7 @@ class PortierOverlay extends HTMLElement {
       :host([data-compact]) .flash{top:44px;font-size:13px}
       @media (max-width:600px){:host{left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom));width:auto}}
       @media (prefers-reduced-motion:reduce){:host{transition:none}.plate,.plate.leaving{animation:none}}
-    </style><div id="stack" role="region" aria-live="polite" aria-label="Türklingel"></div>`;
+    </style><div id="stack" role="region" aria-live="polite" aria-label="${t("Türklingel")}"></div>`;
     this.stack = root.getElementById("stack");
     this.onResize = () => this.layout(false);
     window.addEventListener("resize", this.onResize);
@@ -1380,7 +1521,7 @@ class PortierOverlay extends HTMLElement {
       v.ringTime = door.last_ring;
     }
     if (ring) {
-      this.flash(v, blocked ? "Ton blockiert – einmal tippen" : "Es klingelt");
+      this.flash(v, t(blocked ? "Ton blockiert – einmal tippen" : "Es klingelt"));
       v.el.classList.add("fresh");
       clearTimeout(v.freshTimer);
       v.freshTimer = setTimeout(() => v.el.classList.remove("fresh"), 6000);
@@ -1397,7 +1538,7 @@ class PortierOverlay extends HTMLElement {
         <div class="plate-head">
           <span class="lamp on"></span>
           <h2 class="door-name">${esc(door.name)}</h2>
-          <button class="x" aria-label="Schließen">×</button>
+          <button class="x" aria-label="${t("Schließen")}">×</button>
         </div>
         <div class="flash"></div>
         <div class="controls">
@@ -1425,7 +1566,7 @@ class PortierOverlay extends HTMLElement {
 
   soundBlocked(entryId) {
     const v = this.views.get(entryId);
-    if (v) this.flash(v, "Ton blockiert – einmal tippen");
+    if (v) this.flash(v, t("Ton blockiert – einmal tippen"));
   }
 
   flash(v, text) {
@@ -1473,7 +1614,7 @@ class PortierOverlay extends HTMLElement {
     line.classList.toggle("opened", !!v.opened);
     line.firstElementChild.style.transform = `scaleX(${Math.max(0, Math.min(1, left / v.total))})`;
     // How long the picture stays is shown by the line at the bottom only.
-    const status = v.opened ? `<b>Tür geöffnet</b>${openedBy(door)}` : "";
+    const status = v.opened ? `<b>${t("Tür geöffnet")}</b>${openedBy(door)}` : "";
     const box = el.querySelector(".status");
     if (box.innerHTML !== status) box.innerHTML = status;
   }
@@ -1604,7 +1745,7 @@ class PortierEditor extends HTMLElement {
     const tags = (cfg.nfc_tags || []).map((t) => ({ value: t.entity_id, label: t.name }));
     for (const id of v.nfc_tags || []) if (!tags.some((t) => t.value === id)) tags.push({ value: id, label: id });
     const phones = (cfg.nfc_phones || []).map((p) => ({ value: p.device_id, label: p.name }));
-    for (const id of v.nfc_devices || []) if (!phones.some((p) => p.value === id)) phones.push({ value: id, label: "Unbekanntes Handy" });
+    for (const id of v.nfc_devices || []) if (!phones.some((p) => p.value === id)) phones.push({ value: id, label: t("Unbekanntes Handy") });
     const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
     const on = (v.nfc_tags || []).length > 0;
     return `<fieldset><legend>Wer darf öffnen</legend>
@@ -1660,7 +1801,7 @@ class PortierEditor extends HTMLElement {
     try {
       cfg = await hass.callWS({ type: "portier/config" });
     } catch (err) {
-      alert(`Einstellungen konnten nicht geladen werden: ${err?.message || err}`);
+      alert(t("Einstellungen konnten nicht geladen werden: {err}", { err: err?.message || err }));
       this.remove();
       return;
     }
@@ -1668,6 +1809,7 @@ class PortierEditor extends HTMLElement {
     const v = entryId ? cfg.doors[entryId] : { ...cfg.defaults, name: "" };
     this.v = v;
     this.innerHTML = this.markup(v, cfg);
+    localize(this);
     this.dialog = this.querySelector("dialog");
     this.wire();
     this.dialog.addEventListener("close", () => this.remove());
@@ -1788,9 +1930,9 @@ class PortierEditor extends HTMLElement {
             ? `<div class="f" data-f="telegram_targets"><span>Telegram an</span>
             <div class="checks">${telegramChecks}</div>
             <small>Die Chats aus der Telegram-Bot-Integration. Nur ausgewählte Chats dürfen über den Knopf öffnen.</small></div>`
-            : `<label class="f" data-f="telegram_targets"><span>Telegram-Chat-IDs</span>
-            <input type="text" name="telegram_targets" value="${esc(v.telegram_targets || "")}" placeholder="z. B. 123456789, -100987654" inputmode="numeric">
-            <small>${cfg.telegram ? "Kommagetrennt. Nur diese Chats dürfen über den Knopf öffnen." : "Die Telegram-Bot-Integration ist in Home Assistant noch nicht eingerichtet."}</small></label>`}
+            : `<div class="f" data-f="telegram_targets"><span>Telegram an</span>
+            <input type="hidden" name="telegram_targets" value="${esc(v.telegram_targets || "")}">
+            <small>${cfg.telegram ? "In der Telegram-Bot-Integration noch keinen Chat erlaubt." : "Die Telegram-Bot-Integration ist in Home Assistant noch nicht eingerichtet."}</small></div>`}
           ${this.check("notify_allow_open", "„Tür öffnen“-Knopf in der Nachricht", v.notify_allow_open, "Jeder Knopf öffnet nur einmal. Am Handy ist die Entsperrung nötig.")}
           <div class="two">
             ${this.num("action_window_seconds", "Knopf gültig für", v.action_window_seconds, "s", 1, 120)}
@@ -1853,7 +1995,7 @@ class PortierEditor extends HTMLElement {
       const update = () => {
         const id = inp.value.trim();
         const st = this.hass.states[id];
-        out.textContent = !id ? "" : st ? `✓ ${st.attributes.friendly_name || id}` : "Nicht gefunden";
+        out.textContent = !id ? "" : st ? `✓ ${st.attributes.friendly_name || id}` : t("Nicht gefunden");
         out.classList.toggle("missing", !!id && !st);
         if (inp.name === "camera_entity") {
           // The camera's own settings show only with a camera.
@@ -1970,10 +2112,10 @@ class PortierEditor extends HTMLElement {
     del?.addEventListener("click", async () => {
       if (!del.classList.contains("armed")) {
         del.classList.add("armed");
-        del.textContent = "Wirklich entfernen?";
+        del.textContent = t("Wirklich entfernen?");
         setTimeout(() => {
           del.classList.remove("armed");
-          del.textContent = "Tür entfernen";
+          del.textContent = t("Tür entfernen");
         }, 4000);
         return;
       }
@@ -1984,7 +2126,7 @@ class PortierEditor extends HTMLElement {
         ctrl.listeners.forEach((fn) => fn({ type: "local" }));
         this.dialog.close();
       } catch (err) {
-        this.showError({ base: err?.message || "Entfernen fehlgeschlagen" });
+        this.showError({ base: err?.message || t("Entfernen fehlgeschlagen") });
         del.disabled = false;
       }
     });
@@ -2041,7 +2183,7 @@ class PortierEditor extends HTMLElement {
     this.querySelectorAll("small.err").forEach((el) => el.remove());
     const general = [];
     for (const [key, msg] of Object.entries(errors)) {
-      const text = ERRORS[msg] || msg;
+      const text = t(ERRORS[msg] || msg);
       const field = this.querySelector(`[data-f="${key}"]`);
       if (field) {
         field.classList.add("bad");
@@ -2054,21 +2196,21 @@ class PortierEditor extends HTMLElement {
     }
     const box = this.querySelector(".formerr");
     box.hidden = !general.length && !Object.keys(errors).length;
-    box.textContent = general.length ? general.join(" ") : "Bitte die markierten Felder prüfen.";
+    box.textContent = general.length ? general.join(" ") : t("Bitte die markierten Felder prüfen.");
     this.querySelector(".bad input, .bad select")?.focus();
   }
 
   async save() {
     const data = this.collect();
     const local = {};
-    if (!data.name) local.name = "Bitte einen Namen eingeben.";
+    if (!data.name) local.name = t("Bitte einen Namen eingeben.");
     for (const k of ["trigger_entity", "camera_entity", "opener_entity", "contact_entity", "gong_entity"]) {
-      if (data[k] && !this.hass.states[data[k]]) local[k] = "Diese Entität gibt es nicht.";
+      if (data[k] && !this.hass.states[data[k]]) local[k] = t("Diese Entität gibt es nicht.");
     }
     if (Object.keys(local).length) return this.showError(local);
     const btn = this.querySelector(".primary");
     btn.disabled = true;
-    btn.textContent = "Speichert …";
+    btn.textContent = t("Speichert …");
     try {
       await this.hass.callWS({ type: "portier/door/save", options: data, ...(this.entryId ? { entry_id: this.entryId } : {}) });
       this.dialog.close();
@@ -2077,11 +2219,11 @@ class PortierEditor extends HTMLElement {
       try {
         errors = JSON.parse(err?.message);
       } catch {
-        errors = { base: err?.message || "Speichern fehlgeschlagen" };
+        errors = { base: err?.message || t("Speichern fehlgeschlagen") };
       }
       this.showError(errors);
       btn.disabled = false;
-      btn.textContent = this.entryId ? "Speichern" : "Tür anlegen";
+      btn.textContent = t(this.entryId ? "Speichern" : "Tür anlegen");
     }
   }
 }
@@ -2191,6 +2333,7 @@ class PortierPanel extends HTMLElement {
         <span class="look-state"></span>
       </section>
     </main>`;
+    localize(root);
     this.$ = (s) => root.querySelector(s);
     this.$(".menu").addEventListener("click", () =>
       this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true })),
@@ -2221,12 +2364,12 @@ class PortierPanel extends HTMLElement {
       accent2: field("accent2").value,
     });
     const save = async (look) => {
-      state.textContent = "Speichert …";
+      state.textContent = t("Speichert …");
       try {
         ctrl.look = await (this._hass || rootHass()).callWS({ type: "portier/look/save", ...look });
-        state.textContent = "Gespeichert – gilt auf allen Geräten.";
+        state.textContent = t("Gespeichert – gilt auf allen Geräten.");
       } catch (err) {
-        state.textContent = `Nicht gespeichert: ${err?.message || err}`;
+        state.textContent = t("Nicht gespeichert: {err}", { err: err?.message || err });
       }
       this.renderLook();
     };
@@ -2355,9 +2498,9 @@ class PortierPanel extends HTMLElement {
   }
 
   renderSoundState() {
-    this.$(".sound-state").textContent = ctrl.chime.ready
+    this.$(".sound-state").textContent = t(ctrl.chime.ready
       ? "Ton ist in diesem Browser freigeschaltet."
-      : "Ton wird beim ersten Tippen auf die Seite freigeschaltet.";
+      : "Ton wird beim ersten Tippen auf die Seite freigeschaltet.");
   }
 
   render() {
@@ -2367,6 +2510,7 @@ class PortierPanel extends HTMLElement {
     if (!doors.length) {
       box.innerHTML = `<div class="empty"><span>Noch keine Tür eingerichtet.</span>
         ${this.isAdmin ? `<button class="add">+ Erste Tür hinzufügen</button>` : `<span>Ein Administrator kann hier Türen anlegen.</span>`}</div>`;
+      localize(box);
       box.querySelector(".add")?.addEventListener("click", () => this.edit(null));
       for (const v of this.live.values()) v.destroy();
       this.live.clear();
@@ -2439,6 +2583,7 @@ class PortierPanel extends HTMLElement {
       </div>
       <details class="rings"><summary>Klingelverlauf</summary><ol></ol></details>
       <details class="opens"><summary>Türöffner-Verlauf</summary><ol></ol></details>`;
+    localize(el);
     el.querySelector(".live-btn").addEventListener("click", () => this.toggleLive(door.entry_id, el));
     // A still that failed (old camera key, connection just back): try again shortly
     // with whatever key HA has by then, without waiting for the next refresh.
@@ -2468,19 +2613,19 @@ class PortierPanel extends HTMLElement {
       if (test.disabled) return;
       test.disabled = true;
       test.classList.add("working");
-      test.textContent = "Klingelt …";
+      test.textContent = t("Klingelt …");
       ctrl
         .testRing(door.entry_id)
         .catch((err) => {
           console.warn("Portier: Testklingel fehlgeschlagen", err);
           test.classList.replace("working", "failed");
-          test.textContent = "Fehlgeschlagen";
+          test.textContent = t("Fehlgeschlagen");
         })
         .finally(() =>
           setTimeout(() => {
             test.disabled = false;
             test.classList.remove("working", "failed");
-            test.textContent = "Testklingel";
+            test.textContent = t("Testklingel");
           }, 2000),
         );
     });
@@ -2498,7 +2643,7 @@ class PortierPanel extends HTMLElement {
       this.live.delete(entryId);
       panelLive.delete(entryId);
       btn.classList.remove("on");
-      btn.textContent = "Live ansehen";
+      btn.textContent = t("Live ansehen");
       const d = ctrl.doors.get(entryId);
       if (d && el.isConnected) this.refreshStill(el, d, true);
       return;
@@ -2526,7 +2671,7 @@ class PortierPanel extends HTMLElement {
       if (this.live.get(entryId) === view) this.toggleLive(entryId, el);
     }, until - Date.now());
     btn.classList.add("on");
-    btn.textContent = "Live beenden";
+    btn.textContent = t("Live beenden");
   }
 
   stateText(entityId) {
@@ -2536,7 +2681,7 @@ class PortierPanel extends HTMLElement {
       on: "offen", off: "zu", open: "offen", closed: "zu", opening: "öffnet", closing: "schließt",
       locked: "verriegelt", unlocked: "entriegelt", open_lock: "offen", unavailable: "nicht erreichbar",
     };
-    return map[s.state] || s.state;
+    return map[s.state] ? t(map[s.state]) : s.state;
   }
 
   fill(card, door) {
@@ -2551,8 +2696,9 @@ class PortierPanel extends HTMLElement {
       opener && ["on", "unlocked", "open"].includes(this._hass?.states[door.opener]?.state) ? `Öffner <b>aktiv</b>` : "",
     ]
       .filter(Boolean)
-      .map((t) => `<span>${t}</span>`)
+      .map((x) => `<span>${x}</span>`)
       .join("");
+    localize(card.querySelector(".meta"));
     const list = card.querySelector(".rings ol");
     list.innerHTML = door.history.length
       ? door.history
@@ -2561,8 +2707,8 @@ class PortierPanel extends HTMLElement {
               histRow(when(r.time), ...ringWho(r)),
           )
           .join("")
-      : `<li class="empty"><span>Noch hat niemand geklingelt.</span></li>`;
-    card.querySelector(".rings summary").textContent = `Klingelverlauf (${door.history.length})`;
+      : `<li class="empty"><span>${t("Noch hat niemand geklingelt.")}</span></li>`;
+    card.querySelector(".rings summary").textContent = t("Klingelverlauf ({n})", { n: door.history.length });
     // Who opened the door, and which way.
     const opens = door.opens || [];
     const openBox = card.querySelector(".opens");
@@ -2571,11 +2717,11 @@ class PortierPanel extends HTMLElement {
       ? opens
           .map(
             (r) =>
-              histRow(when(r.time), openWho(r), OPEN_VIA[r.via] || r.via),
+              histRow(when(r.time), openWho(r), openVia(r.via)),
           )
           .join("")
-      : `<li class="empty"><span>Noch nie über Portier geöffnet.</span></li>`;
-    openBox.querySelector("summary").textContent = `Türöffner-Verlauf (${opens.length})`;
+      : `<li class="empty"><span>${t("Noch nie über Portier geöffnet.")}</span></li>`;
+    openBox.querySelector("summary").textContent = t("Türöffner-Verlauf ({n})", { n: opens.length });
     if (!this.live.has(door.entry_id)) this.refreshStill(card, door);
     const live = card.querySelector(".live-btn");
     live.hidden = !door.camera;

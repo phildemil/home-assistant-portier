@@ -74,6 +74,7 @@ from .const import (
 )
 from .nfc import NfcOpener
 from .notifications import Notifier
+from .texts import tr
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -340,7 +341,9 @@ class PortierDoor:
         """Open the door with whatever kind of opener is configured."""
         entity_id = self.opener
         if not entity_id:
-            raise HomeAssistantError(f"{self.name}: kein Türöffner eingerichtet")
+            raise HomeAssistantError(
+                tr(self.hass, "{name}: kein Türöffner eingerichtet", name=self.name)
+            )
         async with self._lock:
             domain = entity_id.split(".")[0]
             if domain in PULSE_DOMAINS and self.opt(CONF_PULSE_MODE) != PULSE_DEVICE:
@@ -463,10 +466,14 @@ class PortierDoor:
             if attempt == 1:
                 persistent_notification.async_create(
                     self.hass,
-                    f"**{entity_id}** konnte nicht "
-                    f"{'verriegelt' if domain == 'lock' else 'ausgeschaltet'} werden. "
-                    "Portier versucht es weiter, bitte das Gerät prüfen.",
-                    title="Portier: Relais prüfen",
+                    tr(
+                        self.hass,
+                        "**{entity}** konnte nicht verriegelt werden. Portier versucht es weiter, bitte das Gerät prüfen."
+                        if domain == "lock"
+                        else "**{entity}** konnte nicht ausgeschaltet werden. Portier versucht es weiter, bitte das Gerät prüfen.",
+                        entity=entity_id,
+                    ),
+                    title=tr(self.hass, "Portier: Relais prüfen"),
                     notification_id=f"{DOMAIN}_{self.entry.entry_id}_off",
                 )
             # The obligation stays stored; retry with growing delay (max 5 min).

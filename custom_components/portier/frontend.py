@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 
 from .const import DOMAIN, PANEL_URL, STATIC_URL
+from .texts import tr
 from .yaml_setup import BACKUP_SUFFIX, LOADER_URL, install_loader, uninstall_loader
 
 _DIR = Path(__file__).parent / "frontend"
@@ -131,7 +132,7 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
         hass,
         frontend_url_path=PANEL_URL,
         webcomponent_name="portier-panel",
-        sidebar_title="Türklingel",
+        sidebar_title=tr(hass, "Türklingel"),
         sidebar_icon="mdi:doorbell-video",
         module_url=url,
         require_admin=False,

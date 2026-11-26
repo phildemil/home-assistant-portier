@@ -59,8 +59,6 @@ CONF_TELEGRAM_TARGETS: Final = "telegram_targets"
 CONF_NOTIFY_OPEN: Final = "notify_allow_open"
 CONF_NOTIFY_COOLDOWN: Final = "notify_cooldown"
 CONF_ACTION_WINDOW: Final = "action_window_seconds"
-OLD_ACTION_WINDOW_MINUTES: Final = "action_window_minutes"
-ACTION_WINDOW_MAX: Final = 120
 
 # Form sections
 SECTION_TRIGGER: Final = "trigger_options"

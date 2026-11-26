@@ -33,6 +33,7 @@ BASE = {
 @pytest.fixture(autouse=True)
 def config_yaml(hass: HomeAssistant, tmp_path, monkeypatch):
     """Every test gets its own configuration.yaml (Portier writes its loader line there)."""
+    hass.config.language = "de"  # the texts below are checked in German
     cfg = tmp_path / "configuration.yaml"
     cfg.write_text("default_config:\n")
     real_path = hass.config.path
@@ -107,6 +108,7 @@ async def test_config_flow(hass: HomeAssistant) -> None:
 
 
 async def test_ring_edge_debounce_and_entities(hass: HomeAssistant) -> None:
+    hass.config.language = "en"  # entity ids below are the English ones
     events = []
     hass.bus.async_listen("portier_ring", events.append)
     entry = await _setup(hass)
@@ -612,20 +614,6 @@ async def test_push_without_button_is_not_replaced(hass: HomeAssistant) -> None:
     assert len(pixel) == 1
 
 
-async def test_migrate_window_minutes_to_seconds(hass: HomeAssistant) -> None:
-    opts = {k: v for k, v in BASE.items() if k != "action_window_seconds"}
-    opts["action_window_minutes"] = 5
-    entry = MockConfigEntry(domain=DOMAIN, title="Haustür", options=opts, version=1, minor_version=1)
-    entry.add_to_hass(hass)
-    await async_setup_component(hass, "input_boolean", {"input_boolean": {"oeffner": {}}})
-    hass.states.async_set("binary_sensor.klingel", "off")
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    assert entry.minor_version == 2
-    assert entry.options["action_window_seconds"] == 120
-    assert "action_window_minutes" not in entry.options
-
-
 async def test_removing_last_door_removes_loader(hass: HomeAssistant, tmp_path, monkeypatch) -> None:
     from pathlib import Path
 
@@ -1083,32 +1071,6 @@ async def test_still_from_portier(hass: HomeAssistant, picture, hass_ws_client) 
     assert not (await client.receive_json())["success"]
 
 
-async def test_ring_missed_is_logged(hass: HomeAssistant, hass_ws_client, caplog) -> None:
-    """A page on screen that did not show a ring reports why; it lands in the log."""
-    entry = await _setup(hass)
-    client = await hass_ws_client(hass)
-    await client.send_json(
-        {
-            "id": 1,
-            "type": "portier/ring_missed",
-            "entry_id": entry.entry_id,
-            "reason": "late",
-            "age_ms": 6200,
-            "visible_ms": 800,
-            "late": True,
-            "app": True,
-        }
-    )
-    assert (await client.receive_json())["success"]
-    assert "Meldung kam zu spät an" in caplog.text
-    assert "6.2 s nach dem Klingeln" in caplog.text
-    assert "HA-App, nach Neuverbindung" in caplog.text
-    await client.send_json(
-        {"id": 2, "type": "portier/ring_missed", "entry_id": entry.entry_id, "reason": "bogus"}
-    )
-    assert not (await client.receive_json())["success"]
-
-
 async def test_trigger_back_online_is_no_ring(hass: HomeAssistant) -> None:
     """A Wi-Fi button that drops out comes back with its last press time – no ring."""
     hass.states.async_set("event.taster", "2026-11-18T10:00:00", {"event_type": "single_push"})
@@ -1192,3 +1154,31 @@ async def test_telegram_with_two_bots_names_the_bot(hass: HomeAssistant) -> None
     )
     await hass.async_block_till_done()
     assert answers[-1].data["config_entry_id"] == bots[1].entry_id
+
+
+async def test_messages_in_english(hass: HomeAssistant) -> None:
+    """Push texts follow Home Assistant's language; anything but German gets English."""
+    hass.config.language = "en"
+    calls = async_mock_service(hass, "notify", "mobile_app_pixel")
+    await _setup(hass, notify_services=["mobile_app_pixel"])
+    await _press(hass)
+    await hass.async_block_till_done()
+    data = calls[0].data
+    assert data["message"].startswith("Someone is ringing")
+    assert data["data"]["actions"][0]["title"] == "🔓 Open door"
+
+
+async def test_open_button_respects_admin_only(hass: HomeAssistant, hass_read_only_user) -> None:
+    """The "open door" entity follows "only admins may open" like every other way."""
+    from homeassistant.core import Context
+    from homeassistant.exceptions import Unauthorized
+
+    await _setup(hass, open_admin_only=True)
+    button = next(s.entity_id for s in hass.states.async_all("button") if s.entity_id.endswith("_door") or "offnen" in s.entity_id or "open" in s.entity_id)
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            "button", "press", {"entity_id": button}, blocking=True, context=Context(user_id=hass_read_only_user.id)
+        )
+    assert hass.states.get("input_boolean.oeffner").state == "off"
+    await hass.services.async_call("button", "press", {"entity_id": button}, blocking=True)
+    assert hass.states.get("input_boolean.oeffner").state == "on"

@@ -12,12 +12,9 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
-    ACTION_WINDOW_MAX,
-    CONF_ACTION_WINDOW,
     CONF_CAMERA,
     CONF_PRELOAD,
     DOMAIN,
-    OLD_ACTION_WINDOW_MINUTES,
     PLATFORMS,
     SIGNAL_UPDATE,
 )
@@ -76,17 +73,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(DOMAIN, "ring", ring, schema=_ENTRY_SCHEMA)
     hass.services.async_register(DOMAIN, "open", open_door, schema=_ENTRY_SCHEMA)
     hass.services.async_register(DOMAIN, "show", show, schema=_ENTRY_SCHEMA)
-    return True
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: PortierConfigEntry) -> bool:
-    """1.1 -> 1.2: the open-button window is given in seconds (max 2 min)."""
-    if entry.version == 1 and entry.minor_version < 2:
-        options = dict(entry.options)
-        minutes = options.pop(OLD_ACTION_WINDOW_MINUTES, None)
-        if minutes is not None and CONF_ACTION_WINDOW not in options:
-            options[CONF_ACTION_WINDOW] = min(float(minutes) * 60, ACTION_WINDOW_MAX)
-        hass.config_entries.async_update_entry(entry, options=options, minor_version=2)
     return True
 
 

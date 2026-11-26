@@ -41,6 +41,8 @@ from .const import (
     SNAPSHOT_STREAM,
 )
 
+from .texts import tr
+
 if TYPE_CHECKING:
     from .manager import PortierDoor
 
@@ -232,7 +234,7 @@ class Notifier:
         picture_path = f"/api/portier/snapshot/{snapshot[0]}" if snapshot else None
         title = f"🔔 {self.door.name}"
         rang = dt_util.now().strftime("%H:%M:%S")
-        message = f"Es klingelt · {rang}"
+        message = tr(self.hass, "Es klingelt · {time}", time=rang)
 
         # Picture set to a moment after the ring: the messages go out once it is taken.
         # Without a delay they go out at once (the phone fetches the picture when ready).
@@ -332,7 +334,7 @@ class Notifier:
             actions.append(
                 {
                     "action": f"{ACTION_PREFIX}{token}",
-                    "title": "🔓 Tür öffnen",
+                    "title": tr(self.hass, "🔓 Tür öffnen"),
                     "authenticationRequired": True,
                     "destructive": True,
                 }
@@ -359,7 +361,7 @@ class Notifier:
         photo_url: str | None,
     ) -> None:
         keyboard = (
-            {"inline_keyboard": [[["🔓 Tür öffnen", f"{TELEGRAM_COMMAND} {token}"]]]}
+            {"inline_keyboard": [[[tr(self.hass, "🔓 Tür öffnen"), f"{TELEGRAM_COMMAND} {token}"]]]}
             if token
             else {}
         )
@@ -422,7 +424,7 @@ class Notifier:
                 if self._tg_live.pop(key, None) is None:
                     return
                 self.hass.async_create_task(
-                    self._edit_telegram(key, "⏱ Öffnen nicht mehr möglich")
+                    self._edit_telegram(key, tr(self.hass, "⏱ Öffnen nicht mehr möglich"))
                 )
 
             self._tg_live[key] = async_call_later(self.hass, window, _expired)
@@ -443,7 +445,7 @@ class Notifier:
                 self._replace_mobile(
                     services,
                     f"🔔 {self.door.name}",
-                    f"Es klingelte · {rang_at} · Öffnen nicht mehr möglich",
+                    tr(self.hass, "Es klingelte · {time} · Öffnen nicht mehr möglich", time=rang_at),
                     ring_picture,
                 )
             )
@@ -465,10 +467,20 @@ class Notifier:
         """The door was opened somehow: say so in every notification still live."""
         if not self._tg_live and not self._push_live:
             return
-        how = "über Telegram" if via == "telegram" else VIA_TEXT.get(via, f"über {via}")
+        if via == "telegram":
+            how = tr(self.hass, "über Telegram")
+        elif via in VIA_TEXT:
+            how = tr(self.hass, VIA_TEXT[via])
+        else:
+            how = tr(self.hass, "über {via}", via=via)
         if who:
-            how = f"von {who} {how}"
-        note = f"✅ Tür geöffnet · {dt_util.now().strftime('%H:%M:%S')} · {how}"
+            how = tr(self.hass, "von {who} {how}", who=who, how=how)
+        note = tr(
+            self.hass,
+            "✅ Tür geöffnet · {time} · {how}",
+            time=dt_util.now().strftime("%H:%M:%S"),
+            how=how,
+        )
         live, self._tg_live = self._tg_live, {}
         for key, cancel in live.items():
             cancel()
@@ -477,7 +489,7 @@ class Notifier:
             services, rang, _picture, cancel = self._push_live
             self._push_live = None
             cancel()
-            message = f"{note.removeprefix('✅ ')}\nEs klingelte · {rang}"
+            message = f"{note.removeprefix('✅ ')}\n" + tr(self.hass, "Es klingelte · {time}", time=rang)
             # "Door opened" shows how it looks at the door now: a fresh picture.
             camera = self.door.camera
             fresh = f"/api/camera_proxy/{camera}" if camera else None
@@ -617,7 +629,7 @@ class Notifier:
             return
         if not self._consume(token):
             self.hass.async_create_task(
-                self._answer(callback_id, "⏱ Zu spät – Knopf abgelaufen", bot)
+                self._answer(callback_id, tr(self.hass, "⏱ Zu spät – Knopf abgelaufen"), bot)
             )
             return
         who = " ".join(
@@ -638,10 +650,10 @@ class Notifier:
         except (HomeAssistantError, TimeoutError) as err:
             _LOGGER.error("Portier: Öffnen über %s fehlgeschlagen: %s", via, err)
             if callback_id:
-                await self._answer(callback_id, "⚠️ Öffnen fehlgeschlagen", bot)
+                await self._answer(callback_id, tr(self.hass, "⚠️ Öffnen fehlgeschlagen"), bot)
             return
         if callback_id:
-            await self._answer(callback_id, "✅ Tür geöffnet", bot)
+            await self._answer(callback_id, tr(self.hass, "✅ Tür geöffnet"), bot)
 
     async def _answer(self, callback_id: str | None, text: str, bot: str | None = None) -> None:
         if not callback_id:

@@ -76,6 +76,8 @@ Bei Schlössern nutzt Portier „öffnen“ (Falle), wenn das Schloss das kann, 
 
 ## Bedienung
 
+Sprache: Portier zeigt sich in der Sprache, die im Home-Assistant-Profil eingestellt ist (Deutsch, sonst Englisch). Push- und Telegram-Nachrichten folgen der Systemsprache von Home Assistant.
+
 - **Es klingelt:** Ton und Livebild erscheinen. Ist Home Assistant im Browser nur in einem Hintergrund-Tab offen, kommt nur der Ton (einmal pro Browser; der Browser verlangt dafür, dass man in diesem Tab einmal geklickt hat). Die Messinglinie unten im Bild zeigt, wie lange das Bild noch offen bleibt (Standard 60 s).
 - **Öffnen:** Messing-Taster antippen. Er dreht kurz und wird grün, sobald die Tür offen ist. Das Bild bleibt danach noch 20 s offen.
 - **Schließen:** Wer ein Klingel-Livebild mit × schließt, schließt es auf allen Geräten. Eine von Hand geöffnete Kamera schließt nur auf dem eigenen Gerät. Klingelt es inzwischen erneut, bleibt das neue Bild offen.

@@ -13,6 +13,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import CONF_NFC_DEVICES, CONF_NFC_FROM, CONF_NFC_NOTIFY, CONF_NFC_TAGS, CONF_NFC_UNTIL
 
+from .texts import tr
+
 if TYPE_CHECKING:
     from .manager import PortierDoor
 
@@ -97,5 +99,10 @@ class NfcOpener:
         if self.door.opt(CONF_NFC_NOTIFY):
             await self.door.notifier.async_info(
                 f"🔓 {self.door.name}",
-                f"{who or 'Jemand'} hat per NFC geöffnet · {dt_util.now().strftime('%H:%M')}",
+                tr(
+                    self.hass,
+                    "{who} hat per NFC geöffnet · {time}",
+                    who=who or tr(self.hass, "Jemand"),
+                    time=dt_util.now().strftime("%H:%M"),
+                ),
             )
