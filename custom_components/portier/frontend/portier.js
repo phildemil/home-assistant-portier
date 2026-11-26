@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.20.0";
+const VERSION = "1.20.1";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -33,8 +33,10 @@ const saveDeviceSettings = (s) => {
   }
 };
 
+/** Dates and times in the page's language, not the browser's (English: 24 h, "21 Nov"). */
+const dateLocale = () => (lang() === "de" ? "de-DE" : "en-GB");
 const timeOf = (iso) =>
-  iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "–";
+  iso ? new Date(iso).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" }) : "–";
 
 function relative(iso, now = Date.now()) {
   if (!iso) return t("noch nie");
@@ -45,7 +47,7 @@ function relative(iso, now = Date.now()) {
   if (m < 60) return t("vor {n} min", { n: m });
   const d = new Date(iso);
   const today = new Date(now).toDateString() === d.toDateString();
-  return today ? t("heute {time}", { time: timeOf(iso) }) : d.toLocaleDateString([], { day: "numeric", month: "short" }) + ` ${timeOf(iso)}`;
+  return today ? t("heute {time}", { time: timeOf(iso) }) : d.toLocaleDateString(dateLocale(), { day: "numeric", month: "short" }) + ` ${timeOf(iso)}`;
 }
 
 const rootHass = () => document.querySelector("home-assistant")?.hass;
@@ -374,7 +376,7 @@ const OPEN_VIA = {
 /** "Heute 17:16:27", "Gestern 14:56:54", "Fr 20.11. 12:59:32" (year added if not this year). */
 function when(iso) {
   const d = new Date(iso);
-  const loc = lang() === "de" ? "de-DE" : [];
+  const loc = dateLocale();
   const time = d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((day(new Date()) - day(d)) / 86400000);
@@ -383,8 +385,8 @@ function when(iso) {
   const wd = d.toLocaleDateString(loc, { weekday: "short" }).replace(".", "");
   const dd = lang() === "de"
     ? `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`
-    : d.toLocaleDateString(loc, { day: "numeric", month: "short" }) + " ";
-  const yy = d.getFullYear() === new Date().getFullYear() ? "" : String(d.getFullYear());
+    : d.toLocaleDateString(loc, { day: "numeric", month: "short" });
+  const yy = d.getFullYear() === new Date().getFullYear() ? "" : `${lang() === "de" ? "" : " "}${d.getFullYear()}`;
   return `${wd} ${dd}${yy} ${time}`;
 }
 
