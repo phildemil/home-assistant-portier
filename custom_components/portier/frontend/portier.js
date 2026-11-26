@@ -6,7 +6,7 @@
  * aktuellen Ansicht eine Türstation mit Livebild, Countdown und Öffnen-Taster.
  */
 
-const VERSION = "1.18.7";
+const VERSION = "1.19.0";
 const LS_DEVICE = "portier.device";
 const LS_PLAYED = "portier.played.";
 const LATE_MS = 5000; // rings reaching this page later than this get no live picture
@@ -113,6 +113,23 @@ function applyLook(el, look) {
 function isHaApp() {
   const bridge = window.externalApp || window.externalAppV2 || window.webkit?.messageHandlers?.externalBus;
   return !!(bridge || rootHass()?.auth?.external);
+}
+
+/**
+ * Wall tablet in Fully Kiosk Browser (with its JavaScript interface switched on): a
+ * doorbell is what it hangs there for, so a ring wakes the screen and shows the picture
+ * even if the screen was off or the screensaver was running.
+ */
+function kioskWake() {
+  const fully = window.fully;
+  if (!fully) return false;
+  try {
+    fully.turnScreenOn?.();
+    fully.stopScreensaver?.();
+  } catch {
+    /* older Fully version */
+  }
+  return true;
 }
 
 /* -------------------------------------------------------------------- sound */
@@ -1104,6 +1121,8 @@ class PortierController {
       this.seen.set(door.entry_id, ring);
       const opened = door.last_opened && door.last_opened >= ring;
       if (opened || this.overlay?.views.has(door.entry_id)) continue;
+      // Rang long before this page loaded or came back: nothing to show, nothing to report.
+      if (this.now() - new Date(ring).getTime() > LATE_MS) continue;
       this.ring(door.entry_id, { time: ring, late: true });
     }
   }
@@ -1118,7 +1137,8 @@ class PortierController {
       return;
     }
     const settings = deviceSettings();
-    if (!this.onScreenAt(msg.time)) {
+    const kiosk = kioskWake();
+    if (!kiosk && !this.onScreenAt(msg.time)) {
       this.reportMissed(entryId, msg, "not_on_screen", age);
       // Home Assistant is open in a background tab: the ring is happening now, so the
       // sound plays (once per browser), but no picture – and nothing later on.
@@ -1588,7 +1608,7 @@ class PortierEditor extends HTMLElement {
     const hhmm = (t) => (t ? String(t).slice(0, 5) : "");
     const on = (v.nfc_tags || []).length > 0;
     return `<fieldset><legend>Wer darf öffnen</legend>
-          ${this.check("open_admin_only", "Nur Administratoren dürfen öffnen", v.open_admin_only, "Sonst jeder angemeldete Benutzer, der die Kamera sehen darf, z. B. das Familien-Tablet.")}
+          ${this.check("open_admin_only", "Nur Administratoren dürfen öffnen", v.open_admin_only, "Sonst jeder angemeldete Benutzer, der die Kamera sehen darf, z. B. das Familien-Tablet. Gilt für die Knöpfe in Home Assistant – wer oben für Push oder Telegram ausgewählt ist, kann über die Nachricht immer öffnen.")}
           ${this.check("nfc_on", "Öffnen per NFC-Aufkleber", on, "Handy mit der Home-Assistant-App an einen Aufkleber an der Tür halten – ohne Tippen. Praktisch für Kinder.")}
           <div class="nfc-body sub-block"${on ? "" : " hidden"}>
           <div class="f" data-f="nfc_tags"><span>NFC-Aufkleber an der Tür</span>
@@ -1802,6 +1822,7 @@ class PortierEditor extends HTMLElement {
             ${this.num("pulse_seconds", "Impuls Türöffner", v.pulse_seconds, "s", 0.1, 60, 0.1)}
             ${this.num("gong_seconds", "Impuls Gong", v.gong_seconds, "s", 0.1, 30, 0.1)}
           </div>
+          ${this.num("relock_seconds", "Schloss wieder verriegeln nach", v.relock_seconds, "s", 0, 600, 1, "Nur für Schlösser, die bloß ent- und verriegeln können (kein „Öffnen“). Ist die Tür dann noch offen (Türkontakt), wartet Portier, bis sie zu ist. 0 = nie.")}
           <p class="sub">Klingeltaster</p>
           ${this.select("trigger_edge", "Auslösen bei", v.trigger_edge, [
             ["on", "Einschalten (Standard)"], ["off", "Ausschalten (invertierter Eingang)"], ["both", "Beides"],
@@ -1998,6 +2019,7 @@ class PortierEditor extends HTMLElement {
       pulse_mode: val("pulse_mode"),
       pulse_seconds: num("pulse_seconds"),
       gong_seconds: num("gong_seconds"),
+      relock_seconds: num("relock_seconds"),
       open_admin_only: f.elements.open_admin_only.checked,
       talk: f.elements.talk.checked,
       camera_preload: f.elements.camera_preload.checked,

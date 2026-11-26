@@ -46,7 +46,7 @@ Alles geht direkt in der Seitenleiste **Türklingel** (als Administrator):
 
 **Handy (Home-Assistant-App):** Unter „Push-Nachricht an“ die Handys ankreuzen, die die Nachricht bekommen sollen (`mobile_app_…`; ein neues Handy erscheint dort, sobald die App angemeldet ist). Die Nachricht zeigt das Kamerabild und den Knopf **Tür öffnen** (das Handy verlangt dafür die Entsperrung). Wer auf die Nachricht tippt, landet direkt im Livebild dieser Tür, mit dem Türöffner im Bild.
 
-**Telegram:** Die Telegram-Bot-Integration muss eingerichtet sein. Die Empfänger per Haken auswählen – angeboten werden die Chats, die in der Telegram-Bot-Integration erlaubt sind (ohne solche Chats: Chat-IDs kommagetrennt eintragen). Es kommt ein Foto mit **Tür öffnen**-Knopf. Nur die eingetragenen Chats dürfen damit öffnen.
+**Telegram:** Die Telegram-Bot-Integration muss eingerichtet sein. Die Empfänger per Haken auswählen – angeboten werden die Chats, die in der Telegram-Bot-Integration erlaubt sind (ohne solche Chats: Chat-IDs kommagetrennt eintragen). Es kommt ein Foto mit **Tür öffnen**-Knopf. Nur die eingetragenen Chats dürfen damit öffnen. Sind mehrere Telegram-Bots eingerichtet, schickt jeder Chat über den Bot, bei dem er erlaubt ist.
 
 **Andere Dienste** (E-Mail, Alexa, …) bekommen eine Textnachricht.
 
@@ -72,7 +72,7 @@ Bei Schaltern schaltet Portier nach der Impulsdauer (Standard 3 s) wieder aus. D
 
 **Am sichersten:** Im Relais selbst einen Auto-Aus-Timer einstellen (bei Shelly „Auto Off“) und in Portier „Gerät (eigener Auto-Aus-Timer)“ wählen. Dann bleibt die Tür auch bei Stromausfall oder WLAN-Abbruch nicht offen.
 
-Bei Schlössern nutzt Portier „öffnen“ (Falle), wenn das Schloss das kann, sonst „entriegeln“.
+Bei Schlössern nutzt Portier „öffnen“ (Falle), wenn das Schloss das kann, sonst „entriegeln“. Ein Schloss, das nur ent- und verriegeln kann, verriegelt Portier nach 10 s wieder (einstellbar, 0 = nie). Meldet der Türkontakt die Tür dann noch offen, wartet Portier, bis sie zu ist.
 
 ## Bedienung
 
@@ -81,6 +81,7 @@ Bei Schlössern nutzt Portier „öffnen“ (Falle), wenn das Schloss das kann, 
 - **Schließen:** Wer ein Klingel-Livebild mit × schließt, schließt es auf allen Geräten. Eine von Hand geöffnete Kamera schließt nur auf dem eigenen Gerät. Klingelt es inzwischen erneut, bleibt das neue Bild offen.
 - **Mehrere Türen gleichzeitig:** Im Querformat stehen die Livebilder nebeneinander und werden kleiner, je mehr es sind. Hochkant stehen sie untereinander. Das zuletzt klingelnde ist vorne und golden umrandet.
 - **Ton:** Wird beim ersten Antippen der Seite automatisch freigeschaltet (Browser-Regel). Ist er blockiert, steht das im Bild.
+- **Wandtablet mit Fully Kiosk Browser:** In Fully die „JavaScript-Schnittstelle“ einschalten. Dann weckt ein Klingeln den Bildschirm (auch aus dem Bildschirmschoner) und zeigt das Livebild.
 - **Farben:** Unten auf der Türklingel-Seite (nur für Admins) lassen sich die zwei Akzentfarben wählen: *Standard* (Messing und Grün), *Wie System* (Farben des Home-Assistant-Designs) oder *Eigene Farben*. Gilt sofort auf allen Geräten; *Standard* stellt die Originalfarben wieder her.
 - **Verlauf:** Unter jeder Tür lassen sich zwei Listen aufklappen. Der **Klingelverlauf** zeigt, welcher Taster geklingelt hat (oder wer die Testklingel gedrückt hat), der **Türöffner-Verlauf**, wer wann geöffnet hat und wie – Home-Assistant-App, Browser, Push-Nachricht, Telegram, NFC, Taste oder Automation. Im Livebild steht es nach dem Öffnen kurz, z. B. „Tür geöffnet · von phil über App“ (App und Push-Nachricht heißen dort beide „App“). Beide Verläufe bleiben auch nach einem Neustart erhalten (je die letzten 50).
 - **Seitenleiste „Türklingel“:** Standbild, Live ansehen (endet nach 5 Minuten von selbst), Testklingel, Verlauf und die Einstellungen für dieses Gerät (Livebild und Ton an/aus pro Browser, z. B. das Tablet im Schlafzimmer stumm).

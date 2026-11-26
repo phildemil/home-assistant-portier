@@ -150,3 +150,25 @@ def test_failed_check_restores_exact_bytes(tmp_path: Path):
         install_loader(cfg)
     assert cfg.read_bytes() == src
     assert not (tmp_path / "configuration.yaml.portier-tmp").exists()
+
+
+def test_commented_out_line_does_not_count():
+    src = "frontend:\n  extra_module_url:\n    # - /local/portier/loader.js\n    - /local/other.js\n"
+    out = add_loader(src)
+    assert _modules(out) == ["/local/other.js", LOADER_URL]
+    back = remove_loader(out)
+    assert _modules(back) == ["/local/other.js"] and "# - /local/portier/loader.js" in back
+
+
+def test_package_with_extra_module_url_is_left_alone(tmp_path: Path):
+    """A package that already sets extra_module_url (e.g. card-mod) would clash."""
+    cfg = tmp_path / "configuration.yaml"
+    (tmp_path / "packages").mkdir()
+    (tmp_path / "packages" / "ui.yaml").write_text(
+        "frontend:\n  extra_module_url:\n    - /local/card-mod.js\n"
+    )
+    src = "homeassistant:\n  packages: !include_dir_named packages\n"
+    cfg.write_text(src)
+    with pytest.raises(CannotEdit):
+        install_loader(cfg)
+    assert cfg.read_text() == src

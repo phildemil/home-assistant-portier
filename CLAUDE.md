@@ -8,6 +8,10 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
 - Pro Tür ein Config-Entry: Klingeltaster (binary_sensor, event, input_button, button, switch,
   input_boolean), Kamera (jede HA-Kamera), Türöffner (switch/light/input_boolean als Impuls,
   lock → open/unlock, button → press, script, cover), optional Türkontakt und Gong.
+  Schloss ohne OPEN-Feature: nach `relock_seconds` (Standard 10, 0 = nie) wieder `lock` – über
+  dieselbe `pending_off`-Pflicht wie Relais; meldet der Türkontakt „offen“, wird alle 5 s neu geprüft.
+  Trigger: Wechsel **von** `unavailable` zählt nie (event/button kehren nach WLAN-Abbruch mit dem
+  alten Zeitstempel zurück → sonst Fehlklingeln). `unknown` → Zeitstempel zählt (erster Druck).
 - Klingeln → Overlay mit Livebild auf jeder offenen HA-Seite, Browser-Ton, Push an
   `notify.mobile_app_*` (Kamerabild + Knopf „Tür öffnen“; Tippen auf die Nachricht öffnet
   `/portier?show=<entry_id>` = Livebild-Popup dieser Tür), Telegram (`send_photo` mit
@@ -106,6 +110,12 @@ Oberfläche ist Deutsch (Englisch als Übersetzung vorhanden).
   Livebilder (`panelLive`, mit Endzeit) und startet sie nach einem Seitenwechsel wieder.
   „Live ansehen“ endet nach 5 min (`PANEL_LIVE_MS`), das Overlay nach `live_seconds`.
   Wer dauernd live sehen will, nimmt eine Kamera-Karte im Dashboard.
+  `catchUp` zeigt und meldet nur Klingeln, die höchstens `LATE_MS` alt sind (sonst Fehlalarme im Log).
+  Fully Kiosk (`window.fully`): Klingeln weckt den Bildschirm und zeigt das Bild ohne Sichtbarkeitsprüfung.
+- Telegram mit mehreren Bots: HA verlangt dann `config_entry_id` bei jedem Aufruf. `telegram_bots()`
+  ordnet jeden Chat dem Bot zu, bei dem er erlaubt ist; Antworten/Bearbeiten nehmen den Bot aus dem Event.
+- Lader in `configuration.yaml`: wartet unbegrenzt (3 s, nach 10 min jede Minute). Auskommentierte Zeile
+  zählt nicht; setzt ein Package schon `extra_module_url` → nicht anfassen, Hinweis.
 
 ## Warum der Lader in configuration.yaml nötig ist
 HA liefert Seiten aus, bevor Integrationen geladen sind. `add_extra_js_url` erreicht Seiten,

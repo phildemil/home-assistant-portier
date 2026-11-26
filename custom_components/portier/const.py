@@ -24,6 +24,8 @@ CONF_DEBOUNCE: Final = "debounce_seconds"
 CONF_PULSE_MODE: Final = "pulse_mode"
 CONF_PULSE_SECONDS: Final = "pulse_seconds"
 CONF_GONG_SECONDS: Final = "gong_seconds"
+# A lock that can only unlock (no "open"): lock it again after this many seconds (0 = never).
+CONF_RELOCK_SECONDS: Final = "relock_seconds"
 CONF_ADMIN_ONLY: Final = "open_admin_only"
 
 # Live view
@@ -86,6 +88,7 @@ DEFAULTS: Final = {
     CONF_PULSE_MODE: PULSE_PORTIER,
     CONF_PULSE_SECONDS: 3.0,
     CONF_GONG_SECONDS: 1.0,
+    CONF_RELOCK_SECONDS: 10.0,
     CONF_ADMIN_ONLY: False,
     CONF_LIVE_SECONDS: 60,
     CONF_AFTER_OPEN_SECONDS: 20,

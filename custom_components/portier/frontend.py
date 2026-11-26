@@ -26,9 +26,10 @@ CURRENT_URL = f"{STATIC_URL}/current"
 # long before integrations are loaded. It waits until Portier is up, then loads it.
 LOADER_JS = """// Portier loader – created automatically, do not edit.
 (async () => {
-  // Waits for Portier while Home Assistant starts; gives up after ~10 minutes
-  // (e.g. Portier was removed but this line is still in configuration.yaml).
-  for (let i = 0; i < 200; i++) {
+  // Waits for Portier while Home Assistant starts – however long that takes (a small
+  // computer after an update can need more than 10 minutes): every 3 s at first,
+  // then once a minute.
+  for (let i = 0; ; i++) {
     if (window.__portier) return;
     try {
       const r = await fetch("%s", { cache: "no-store", credentials: "same-origin" });
@@ -40,7 +41,7 @@ LOADER_JS = """// Portier loader – created automatically, do not edit.
     } catch (e) {
       /* Home Assistant is still starting */
     }
-    await new Promise((res) => setTimeout(res, 3000));
+    await new Promise((res) => setTimeout(res, i < 200 ? 3000 : 60000));
   }
 })();
 """ % CURRENT_URL

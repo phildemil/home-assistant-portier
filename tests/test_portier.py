@@ -1107,3 +1107,88 @@ async def test_ring_missed_is_logged(hass: HomeAssistant, hass_ws_client, caplog
         {"id": 2, "type": "portier/ring_missed", "entry_id": entry.entry_id, "reason": "bogus"}
     )
     assert not (await client.receive_json())["success"]
+
+
+async def test_trigger_back_online_is_no_ring(hass: HomeAssistant) -> None:
+    """A Wi-Fi button that drops out comes back with its last press time – no ring."""
+    hass.states.async_set("event.taster", "2026-11-18T10:00:00", {"event_type": "single_push"})
+    events = []
+    hass.bus.async_listen("portier_ring", events.append)
+    await _setup(hass, trigger_entity="event.taster")
+    hass.states.async_set("event.taster", "unavailable")
+    await hass.async_block_till_done()
+    hass.states.async_set("event.taster", "2026-11-18T10:00:00", {"event_type": "single_push"})
+    await hass.async_block_till_done()
+    assert not events
+    hass.states.async_set("event.taster", "2026-11-18T10:05:00", {"event_type": "single_push"})
+    await hass.async_block_till_done()
+    assert len(events) == 1
+
+
+async def test_lock_without_open_is_locked_again(hass: HomeAssistant) -> None:
+    hass.states.async_set("lock.riegel", "locked", {"supported_features": 0})
+    hass.states.async_set("binary_sensor.tuerkontakt", "off")
+    unlocks = async_mock_service(hass, "lock", "unlock")
+    locks = async_mock_service(hass, "lock", "lock")
+    entry = await _setup(
+        hass, opener_entity="lock.riegel", contact_entity="binary_sensor.tuerkontakt", relock_seconds=10
+    )
+    door = entry.runtime_data
+    await door.async_open()
+    assert len(unlocks) == 1 and not locks
+    assert "lock.riegel" in door._pending_off
+    # The visitor still stands in the open door: wait.
+    hass.states.async_set("binary_sensor.tuerkontakt", "on")
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=11))
+    await hass.async_block_till_done()
+    assert not locks
+    hass.states.async_set("binary_sensor.tuerkontakt", "off")
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=17))
+    await hass.async_block_till_done()
+    assert len(locks) == 1
+    assert not door._pending_off
+
+
+async def test_lock_relock_can_be_switched_off(hass: HomeAssistant) -> None:
+    hass.states.async_set("lock.riegel", "locked", {"supported_features": 0})
+    async_mock_service(hass, "lock", "unlock")
+    locks = async_mock_service(hass, "lock", "lock")
+    entry = await _setup(hass, opener_entity="lock.riegel", relock_seconds=0)
+    await entry.runtime_data.async_open()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+    await hass.async_block_till_done()
+    assert not locks
+
+
+async def test_telegram_with_two_bots_names_the_bot(hass: HomeAssistant) -> None:
+    """With two Telegram bots Home Assistant must be told which one sends."""
+    from homeassistant.config_entries import ConfigSubentryData
+
+    bots = []
+    for name, chat in (("Bot A", 111), ("Bot B", 222)):
+        bot = MockConfigEntry(
+            domain="telegram_bot",
+            title=name,
+            subentries_data=[
+                ConfigSubentryData(
+                    data={"chat_id": chat}, subentry_type="allowed_chat_ids", title=str(chat), unique_id=str(chat)
+                )
+            ],
+        )
+        bot.add_to_hass(hass)
+        bots.append(bot)
+    async_mock_service(hass, "telegram_bot", "send_photo")
+    messages = async_mock_service(hass, "telegram_bot", "send_message")
+    answers = async_mock_service(hass, "telegram_bot", "answer_callback_query")
+    await _setup(hass, camera_entity=None, telegram_targets="111, 222")
+    await _press(hass)
+    await hass.async_block_till_done()
+    sent = {m.data["config_entry_id"]: m.data["chat_id"] for m in messages}
+    assert sent == {bots[0].entry_id: [111], bots[1].entry_id: [222]}
+    command = messages[0].data["inline_keyboard"][0][0][1]
+    hass.bus.async_fire(
+        "telegram_callback",
+        {"data": command, "chat_id": 222, "id": "q1", "bot": {"config_entry_id": bots[1].entry_id}},
+    )
+    await hass.async_block_till_done()
+    assert answers[-1].data["config_entry_id"] == bots[1].entry_id

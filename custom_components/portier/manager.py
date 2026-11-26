@@ -49,6 +49,7 @@ from .const import (
     CONF_OPENER,
     CONF_PULSE_MODE,
     CONF_PULSE_SECONDS,
+    CONF_RELOCK_SECONDS,
     CONF_SOUND,
     CONF_TALK,
     CONF_TRIGGER,
@@ -213,6 +214,10 @@ class PortierDoor:
         new = event.data["new_state"]
         if old is None or new is None or new.state in _INVALID:
             return
+        if old.state == STATE_UNAVAILABLE:
+            # Back online (Wi-Fi drop, device restart): an event or button entity returns
+            # to the time of its last press – that is not a new press.
+            return
         domain = new.domain
         if domain in EDGE_DOMAINS:
             edge = self.opt(CONF_TRIGGER_EDGE)
@@ -352,6 +357,20 @@ class PortierDoor:
                     self._pulse_cancel = self._later(
                         float(self.opt(CONF_PULSE_SECONDS)), lambda: self._end_pulse(entity_id)
                     )
+            elif self._relock_after(entity_id):
+                # A lock that can only unlock: lock it again afterwards. Remembered before
+                # unlocking, so a restart in between still locks it.
+                if self._pulse_cancel:
+                    self._pulse_cancel()
+                    self._pulse_cancel = None
+                self._pending_off.add(entity_id)
+                await self._save()
+                try:
+                    await self._call("lock", "unlock", entity_id, {}, context)
+                finally:
+                    self._pulse_cancel = self._later(
+                        self._relock_after(entity_id), lambda: self._end_pulse(entity_id)
+                    )
             else:
                 await self._activate(entity_id, context)
 
@@ -377,9 +396,29 @@ class PortierDoor:
         user = await self.hass.auth.async_get_user(context.user_id)
         return user.name if user and user.name else None
 
+    def _lock_can_open(self, entity_id: str) -> bool:
+        state = self.hass.states.get(entity_id)
+        features = state.attributes.get(ATTR_SUPPORTED_FEATURES, 0) if state else 0
+        return bool(features & LockEntityFeature.OPEN)
+
+    def _relock_after(self, entity_id: str) -> float:
+        """Seconds until a lock without "open" is locked again (0 = not at all)."""
+        if entity_id.split(".")[0] != "lock" or self._lock_can_open(entity_id):
+            return 0.0
+        return float(self.opt(CONF_RELOCK_SECONDS) or 0)
+
+    def _door_open(self) -> bool:
+        """The door contact says the door is open (a bolt must not shoot out then)."""
+        state = self.hass.states.get(self.contact) if self.contact else None
+        return bool(state) and state.state in (STATE_ON, "open", "opening")
+
     async def _end_pulse(self, entity_id: str) -> None:
         async with self._lock:
             self._pulse_cancel = None
+            if entity_id.split(".")[0] == "lock" and self._door_open():
+                # Wait until the door is closed again before locking.
+                self._pulse_cancel = self._later(5, lambda: self._end_pulse(entity_id))
+                return
             await self._turn_off(entity_id)
 
     async def _activate(self, entity_id: str, context: Context | None) -> None:
@@ -388,9 +427,7 @@ class PortierDoor:
         if domain in ("button", "input_button"):
             service, data = "press", {}
         elif domain == "lock":
-            state = self.hass.states.get(entity_id)
-            features = state.attributes.get(ATTR_SUPPORTED_FEATURES, 0) if state else 0
-            service = "open" if features & LockEntityFeature.OPEN else "unlock"
+            service = "open" if self._lock_can_open(entity_id) else "unlock"
             data = {}
         elif domain == "cover":
             service, data = "open_cover", {}
@@ -412,8 +449,10 @@ class PortierDoor:
         await self._call(entity_id.split(".")[0], "turn_on", entity_id, {}, context)
 
     async def _turn_off(self, entity_id: str, attempt: int = 1) -> None:
+        """Switch a pulse off again – or lock a lock again."""
+        domain = entity_id.split(".")[0]
         try:
-            await self._call(entity_id.split(".")[0], "turn_off", entity_id, {}, None)
+            await self._call(domain, "lock" if domain == "lock" else "turn_off", entity_id, {}, None)
         except (HomeAssistantError, TimeoutError) as err:
             _LOGGER.error(
                 "Portier: %s konnte nicht ausgeschaltet werden (Versuch %s): %s",
@@ -424,8 +463,9 @@ class PortierDoor:
             if attempt == 1:
                 persistent_notification.async_create(
                     self.hass,
-                    f"**{entity_id}** konnte nicht ausgeschaltet werden. "
-                    "Portier versucht es weiter, bitte das Relais prüfen.",
+                    f"**{entity_id}** konnte nicht "
+                    f"{'verriegelt' if domain == 'lock' else 'ausgeschaltet'} werden. "
+                    "Portier versucht es weiter, bitte das Gerät prüfen.",
                     title="Portier: Relais prüfen",
                     notification_id=f"{DOMAIN}_{self.entry.entry_id}_off",
                 )

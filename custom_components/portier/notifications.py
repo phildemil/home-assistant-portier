@@ -70,6 +70,7 @@ SNAPSHOT_KEEP = 1800.0  # seconds a picture stays downloadable (phones may fetch
 _SNAPSHOTS = f"{DOMAIN}_snapshots"
 
 type Picture = tuple[bytes, str] | None
+type TgKey = tuple[int, int, bool, str, str | None]
 
 
 class SnapshotView(HomeAssistantView):
@@ -118,6 +119,34 @@ def parse_telegram_targets(raw: str | None) -> list[int]:
     return result
 
 
+def telegram_bots(hass: HomeAssistant, chats: list[int]) -> list[tuple[str | None, list[int]]]:
+    """Which bot sends to which chats.
+
+    With one bot Home Assistant picks it itself (None). With several it must be told:
+    each chat goes to the bot that has it as an allowed chat (else to the first bot).
+    """
+    entries = hass.config_entries.async_entries("telegram_bot")
+    if len(entries) <= 1:
+        return [(None, chats)] if chats else []
+    groups: dict[str, list[int]] = {}
+    for chat in chats:
+        owner = next(
+            (
+                e.entry_id
+                for e in entries
+                for sub in getattr(e, "subentries", {}).values()
+                if str(sub.data.get("chat_id")) == str(chat)
+            ),
+            entries[0].entry_id,
+        )
+        groups.setdefault(owner, []).append(chat)
+    return list(groups.items())
+
+
+def _with_bot(data: dict[str, Any], bot: str | None) -> dict[str, Any]:
+    return {**data, "config_entry_id": bot} if bot else data
+
+
 class Notifier:
     """Sends ring notifications and handles their "open door" buttons."""
 
@@ -127,8 +156,8 @@ class Notifier:
         self._tokens: dict[str, float] = {}
         self._last_sent = 0.0
         # Telegram messages whose "open" button is still live: (chat_id, message_id,
-        # is_photo, caption) -> cancel of the expiry timer.
-        self._tg_live: dict[tuple[int, int, bool, str], CALLBACK_TYPE] = {}
+        # is_photo, caption, bot) -> cancel of the expiry timer.
+        self._tg_live: dict[TgKey, CALLBACK_TYPE] = {}
         # Phones whose ring notification still shows the "open" button:
         # (services, time of the ring, cancel of the expiry timer).
         # (services, time of the ring, ring picture path, cancel of the expiry timer)
@@ -246,14 +275,15 @@ class Notifier:
                 _LOGGER.warning("Portier: Hinweis über %s fehlgeschlagen: %s", service, err)
         targets = parse_telegram_targets(self.door.opt(CONF_TELEGRAM_TARGETS))
         if targets and self.hass.services.has_service("telegram_bot", "send_message"):
-            try:
-                await self._call(
-                    "telegram_bot",
-                    "send_message",
-                    {"chat_id": targets, "message": f"{title}\n{message}"},
-                )
-            except (HomeAssistantError, ValueError, TimeoutError) as err:
-                _LOGGER.warning("Portier: Telegram-Hinweis fehlgeschlagen: %s", err)
+            for bot, chats in telegram_bots(self.hass, targets):
+                try:
+                    await self._call(
+                        "telegram_bot",
+                        "send_message",
+                        _with_bot({"chat_id": chats, "message": f"{title}\n{message}"}, bot),
+                    )
+                except (HomeAssistantError, ValueError, TimeoutError) as err:
+                    _LOGGER.warning("Portier: Telegram-Hinweis fehlgeschlagen: %s", err)
 
     async def _send_mobile(
         self,
@@ -317,6 +347,17 @@ class Notifier:
         if not self.hass.services.has_service("telegram_bot", "send_message"):
             _LOGGER.warning("Portier: Telegram-Ziele eingetragen, aber kein Telegram-Bot in HA")
             return
+        for bot, chats in telegram_bots(self.hass, targets):
+            await self._send_telegram_bot(bot, chats, caption, token, photo_url)
+
+    async def _send_telegram_bot(
+        self,
+        bot: str | None,
+        targets: list[int],
+        caption: str,
+        token: str | None,
+        photo_url: str | None,
+    ) -> None:
         keyboard = (
             {"inline_keyboard": [[["🔓 Tür öffnen", f"{TELEGRAM_COMMAND} {token}"]]]}
             if token
@@ -326,29 +367,33 @@ class Notifier:
             try:
                 response = await self._call_tg(
                     "send_photo",
-                    {
-                        "chat_id": targets,
-                        "url": photo_url,
-                        "verify_ssl": False,
-                        "caption": caption,
-                        **keyboard,
-                    },
+                    _with_bot(
+                        {
+                            "chat_id": targets,
+                            "url": photo_url,
+                            "verify_ssl": False,
+                            "caption": caption,
+                            **keyboard,
+                        },
+                        bot,
+                    ),
                 )
             except (HomeAssistantError, ValueError, TimeoutError) as err:
                 _LOGGER.warning("Portier: Telegram-Foto fehlgeschlagen, sende Text: %s", err)
             else:
                 if token:
-                    self._track_telegram(response, True, caption)
+                    self._track_telegram(response, True, caption, bot)
                 return
         try:
             response = await self._call_tg(
-                "send_message", {"chat_id": targets, "message": caption, **keyboard}
+                "send_message",
+                _with_bot({"chat_id": targets, "message": caption, **keyboard}, bot),
             )
         except (HomeAssistantError, ValueError, TimeoutError) as err:
             _LOGGER.error("Portier: Telegram fehlgeschlagen: %s", err)
             return
         if token:
-            self._track_telegram(response, False, caption)
+            self._track_telegram(response, False, caption, bot)
 
     async def _call_tg(self, service: str, data: dict[str, Any]) -> Any:
         """Call a telegram_bot send service, asking for the message ids if possible."""
@@ -360,18 +405,20 @@ class Notifier:
             "telegram_bot", service, data, blocking=True, return_response=wants
         )
 
-    def _track_telegram(self, response: Any, is_photo: bool, caption: str) -> None:
+    def _track_telegram(
+        self, response: Any, is_photo: bool, caption: str, bot: str | None = None
+    ) -> None:
         """Remember sent messages so their button can be removed later."""
         chats = response.get("chats") if isinstance(response, dict) else None
         window = float(self.door.opt(CONF_ACTION_WINDOW))
         for item in chats or []:
             try:
-                key = (int(item["chat_id"]), int(item["message_id"]), is_photo, caption)
+                key = (int(item["chat_id"]), int(item["message_id"]), is_photo, caption, bot)
             except (KeyError, TypeError, ValueError):
                 continue
 
             @callback
-            def _expired(_now: Any, key: tuple[int, int, bool, str] = key) -> None:
+            def _expired(_now: Any, key: TgKey = key) -> None:
                 if self._tg_live.pop(key, None) is None:
                     return
                 self.hass.async_create_task(
@@ -438,8 +485,8 @@ class Notifier:
                 self._replace_mobile(services, f"✅ {self.door.name}", message, fresh)
             )
 
-    async def _edit_telegram(self, key: tuple[int, int, bool, str], note: str) -> None:
-        chat_id, message_id, is_photo, caption = key
+    async def _edit_telegram(self, key: TgKey, note: str) -> None:
+        chat_id, message_id, is_photo, caption, bot = key
         text = f"{caption}\n{note}"
         data: dict[str, Any] = {
             "chat_id": chat_id,
@@ -451,7 +498,7 @@ class Notifier:
         else:
             service, data["message"] = "edit_message", text
         try:
-            await self._call("telegram_bot", service, data)
+            await self._call("telegram_bot", service, _with_bot(data, bot))
         except (HomeAssistantError, ValueError, TimeoutError) as err:
             _LOGGER.debug("Portier: Telegram-Nachricht nicht geändert: %s", err)
 
@@ -562,17 +609,21 @@ class Notifier:
             return
         chat_id = event.data.get("chat_id")
         callback_id = event.data.get("id")
+        bot_info = event.data.get("bot")
+        bot = bot_info.get("config_entry_id") if isinstance(bot_info, dict) else None
         allowed = parse_telegram_targets(self.door.opt(CONF_TELEGRAM_TARGETS))
         if chat_id not in allowed:
             _LOGGER.warning("Portier: Telegram-Öffnen aus fremdem Chat %s abgelehnt", chat_id)
             return
         if not self._consume(token):
-            self.hass.async_create_task(self._answer(callback_id, "⏱ Zu spät – Knopf abgelaufen"))
+            self.hass.async_create_task(
+                self._answer(callback_id, "⏱ Zu spät – Knopf abgelaufen", bot)
+            )
             return
         who = " ".join(
             p for p in (event.data.get("from_first"), event.data.get("from_last")) if p
         ) or None
-        self.hass.async_create_task(self._open(None, "telegram", callback_id, who))
+        self.hass.async_create_task(self._open(None, "telegram", callback_id, who, bot))
 
     async def _open(
         self,
@@ -580,25 +631,26 @@ class Notifier:
         via: str,
         callback_id: str | None = None,
         who: str | None = None,
+        bot: str | None = None,
     ) -> None:
         try:
             await self.door.async_open(context=context, via=via, who=who)
         except (HomeAssistantError, TimeoutError) as err:
             _LOGGER.error("Portier: Öffnen über %s fehlgeschlagen: %s", via, err)
             if callback_id:
-                await self._answer(callback_id, "⚠️ Öffnen fehlgeschlagen")
+                await self._answer(callback_id, "⚠️ Öffnen fehlgeschlagen", bot)
             return
         if callback_id:
-            await self._answer(callback_id, "✅ Tür geöffnet")
+            await self._answer(callback_id, "✅ Tür geöffnet", bot)
 
-    async def _answer(self, callback_id: str | None, text: str) -> None:
+    async def _answer(self, callback_id: str | None, text: str, bot: str | None = None) -> None:
         if not callback_id:
             return
         try:
             await self._call(
                 "telegram_bot",
                 "answer_callback_query",
-                {"callback_query_id": callback_id, "message": text},
+                _with_bot({"callback_query_id": callback_id, "message": text}, bot),
             )
         except (HomeAssistantError, ValueError, TimeoutError) as err:
             _LOGGER.debug("Portier: Telegram-Antwort fehlgeschlagen: %s", err)

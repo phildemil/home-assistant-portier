@@ -51,13 +51,31 @@ def _is_content(line: str) -> bool:
     return bool(stripped) and not stripped.startswith("#")
 
 
+def _has_url(text: str, url: str) -> bool:
+    """The loader is really in the file – a commented-out line does not count."""
+    return any(url in line.split("#", 1)[0] for line in text.splitlines())
+
+
+def _package_modules(data: Any) -> bool:
+    """A package already sets frontend.extra_module_url: a second list in
+    configuration.yaml would clash with it, so this is left to the user."""
+    packages = ((data or {}).get("homeassistant") or {}).get("packages") or {}
+    if not isinstance(packages, dict):
+        return False
+    for package in packages.values():
+        frontend = (package or {}).get("frontend") if isinstance(package, dict) else None
+        if isinstance(frontend, dict) and "extra_module_url" in frontend:
+            return True
+    return False
+
+
 def add_loader(text: str, url: str = LOADER_URL) -> str:
     """Return the YAML text with the loader added under frontend.extra_module_url.
 
     Only plain, block-style YAML is changed. Anything unusual (frontend loaded
     via !include, inline lists, tabs) raises CannotEdit so the user does it by hand.
     """
-    if url in text:
+    if _has_url(text, url):
         return text
     if "\t" in text:
         raise CannotEdit("tabs")
@@ -129,6 +147,12 @@ def install_loader(config_path: Path, url: str = LOADER_URL) -> bool:
     new = add_loader(original, url)
     if new == original:
         return False
+    try:
+        in_package = _package_modules(_load(config_path))
+    except Exception:  # noqa: BLE001 – not loadable as it is: the check after writing decides
+        in_package = False
+    if in_package:
+        raise CannotEdit("extra_module_url in a package")
     backup = config_path.with_name(config_path.name + BACKUP_SUFFIX)
     shutil.copy2(config_path, backup)
     _write(config_path, new)
@@ -149,11 +173,11 @@ def remove_loader(text: str, url: str = LOADER_URL) -> str:
     Empty `extra_module_url:` and `frontend:` keys that only held the loader are
     removed as well. Inline lists and other unusual layouts raise CannotEdit.
     """
-    if url not in text:
+    if not _has_url(text, url):
         return text
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
-    hits = [i for i, line in enumerate(lines) if url in line]
+    hits = [i for i, line in enumerate(lines) if url in line.split("#", 1)[0]]
     for i in hits:
         if lines[i].strip().split("#", 1)[0].strip() != f"- {url}":
             raise CannotEdit("inline")
